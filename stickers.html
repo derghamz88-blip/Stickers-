@@ -144,7 +144,10 @@ nav{background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0}
 <script>
 // ══ CONFIG ══
 const CLIENT_ID='11424af3-de3a-4401-ace9-325149977264';
-const XLSX_PATH='Desktop/new print/print_stickers.xlsx';
+let XLSX_PATH=LS_raw('stk_xlsx_path')||'Desktop/new print/print_stickers.xlsx';
+let _fileId=LS_raw('stk_file_id')||null;
+function LS_raw(k){try{return localStorage.getItem(k);}catch{return null;}}
+function LS_rawSet(k,v){try{localStorage.setItem(k,v);}catch{}}
 const SIGNAL_PATH='sticker_signal.json';
 
 const SHEETS={
@@ -352,13 +355,49 @@ async function getToken(){
   return r.accessToken;
 }
 
+// إيجاد ملف الإكسيل - يبحث لحاله لو المسار تغير
+async function findFile(token){
+  const H={'Authorization':'Bearer '+token};
+  // 1) جرّب الـ id المحفوظ
+  if(_fileId){
+    const r=await fetch(`https://graph.microsoft.com/v1.0/me/drive/items/${_fileId}`,{headers:H});
+    if(r.ok) return _fileId;
+    _fileId=null;
+  }
+  // 2) جرّب المسار المعروف
+  const paths=[XLSX_PATH,'Desktop/new print/print_stickers.xlsx','new print/print_stickers.xlsx','print_stickers.xlsx'];
+  for(const p of paths){
+    try{
+      const r=await fetch(`https://graph.microsoft.com/v1.0/me/drive/root:/${p.split('/').map(encodeURIComponent).join('/')}`,{headers:H});
+      if(r.ok){
+        const j=await r.json();
+        _fileId=j.id; XLSX_PATH=p;
+        LS_rawSet('stk_file_id',j.id); LS_rawSet('stk_xlsx_path',p);
+        return j.id;
+      }
+    }catch(e){}
+  }
+  // 3) ابحث بكل الـ OneDrive
+  try{
+    const r=await fetch(`https://graph.microsoft.com/v1.0/me/drive/root/search(q='print_stickers')?$top=25`,{headers:H});
+    if(r.ok){
+      const j=await r.json();
+      const hit=(j.value||[]).find(x=>x.name&&x.name.toLowerCase().startsWith('print_stickers')&&x.name.toLowerCase().endsWith('.xlsx'));
+      if(hit){
+        _fileId=hit.id;
+        LS_rawSet('stk_file_id',hit.id);
+        console.log('✓ Found file via search:',hit.parentReference?.path,'/',hit.name);
+        return hit.id;
+      }
+    }
+  }catch(e){}
+  throw new Error('print_stickers.xlsx not found in OneDrive');
+}
+
 // كتابة العمود B للشيت المحدد
 async function writeSheet(key,token){
   const cfg=SHEETS[key];
-  const fr=await fetch(`https://graph.microsoft.com/v1.0/me/drive/root:/${XLSX_PATH}`,
-    {headers:{'Authorization':'Bearer '+token}});
-  if(!fr.ok) throw new Error('Excel file not found');
-  const fid=(await fr.json()).id;
+  const fid=await findFile(token);
   const base=`https://graph.microsoft.com/v1.0/me/drive/items/${fid}/workbook/worksheets/${encodeURIComponent(cfg.name)}`;
 
   const n=cfg.items.length;
