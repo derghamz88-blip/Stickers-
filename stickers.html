@@ -371,7 +371,7 @@ async function initMsal(){
   }
   msalApp=new msal.PublicClientApplication({
     auth:{clientId:CLIENT_ID,authority:'https://login.microsoftonline.com/consumers',
-      redirectUri:window.location.origin+window.location.pathname},
+      redirectUri:'https://derghamz88-blip.github.io/Stickers-/stickers.html'},
     cache:{cacheLocation:'localStorage'}
   });
   await msalApp.initialize();
