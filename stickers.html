@@ -133,6 +133,11 @@ nav{background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0}
     <div class="stab" onclick="setTab('goods',this)">📦 Goods</div>
     <div class="stab" onclick="setTab('kanz',this)">🏷 KANZ</div>
   </div>
+  <div style="padding:10px 12px;background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0">
+    <div style="font-size:.62rem;color:var(--muted);font-family:var(--mono);margin-bottom:4px">ONEDRIVE ACCOUNT</div>
+    <div id="acctInfo" style="font-size:.75rem;color:var(--teal);margin-bottom:8px">Not signed in</div>
+    <button class="btn b-red" style="width:100%;padding:9px;font-size:.75rem" onclick="switchAccount()">🔄 Sign out / Switch Account</button>
+  </div>
   <div class="list" id="list-settings"></div>
   <div class="bar">
     <button class="btn b-ghost" style="flex:1;padding:11px;font-size:.78rem" onclick="resetOrder()">↺ Reset Order</button>
@@ -236,6 +241,33 @@ function clearSheet(key){
   LS.set('stk_data',data);
   render(key);
   toast('✓ Cleared','ok');
+}
+
+// ══ ACCOUNT ══
+async function showAccount(){
+  try{
+    await initMsal();
+    const acc=msalApp.getAllAccounts();
+    const el=document.getElementById('acctInfo');
+    if(el) el.textContent = acc.length ? (acc[0].username||acc[0].name||'Signed in') : 'Not signed in';
+  }catch(e){}
+}
+async function switchAccount(){
+  try{
+    await initMsal();
+    // امسح كل الحسابات والـ cache
+    localStorage.removeItem('stk_file_id');
+    localStorage.removeItem('stk_xlsx_path');
+    _fileId=null;
+    const acc=msalApp.getAllAccounts();
+    for(const a of acc){ try{ await msalApp.logoutPopup({account:a}); }catch(e){} }
+    // سجّل دخول جديد مع اختيار الحساب
+    const r=await msalApp.loginPopup({scopes:['Files.ReadWrite'],prompt:'select_account'});
+    toast('✓ Signed in: '+(r.account?.username||''),'ok');
+    showAccount();
+  }catch(e){
+    toast('✗ '+e.message,'err');
+  }
 }
 
 // ══ SETTINGS: REORDER ══
@@ -476,6 +508,7 @@ async function killExcel(){
 
 // ══ INIT ══
 render('fresh'); render('goods'); render('kanz'); renderSettings();
+setTimeout(showAccount,1200);
 document.querySelectorAll('input').forEach(i=>{if(i.value)i.classList.add('has');});
 </script>
 </body>
