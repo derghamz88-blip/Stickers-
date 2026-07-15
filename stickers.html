@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>IAT Stickers</title>
+<script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"></script>
+<style>
+:root{
+  --bg:#0a0e1a; --s1:#111827; --s2:#1a2234; --s3:#232d42;
+  --b1:#2a3548; --b2:#374357; --faint:rgba(255,255,255,.05);
+  --txt:#e8edf5; --muted:#7c8ba1;
+  --teal:#14b8a6; --amber:#fbbf24; --blue:#3b82f6; --red:#ef4444; --purple:#a855f7;
+  --mono:ui-monospace,'SF Mono',Menlo,monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{background:var(--bg);color:var(--txt);font-family:system-ui,-apple-system,'Segoe UI',sans-serif;
+  height:100vh;display:flex;flex-direction:column;overflow:hidden}
+nav{background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0}
+.navrow{display:flex;align-items:stretch;overflow-x:auto;scrollbar-width:none}
+.navrow::-webkit-scrollbar{display:none}
+.ntab{display:flex;align-items:center;justify-content:center;gap:5px;padding:0 14px;min-height:44px;
+  font-size:.8rem;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;flex-shrink:0;
+  border-bottom:2.5px solid transparent;transition:all .15s}
+.ntab.on{color:var(--txt);border-bottom-color:var(--teal);background:var(--s2)}
+.page{display:none;flex:1;flex-direction:column;overflow:hidden}
+.page.on{display:flex}
+.list{flex:1;overflow-y:auto;padding:8px}
+.row{display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--faint)}
+.row:nth-child(odd){background:var(--s1)}
+.row .name{flex:1;font-size:.82rem}
+.row input{width:62px;padding:7px 6px;border:1.5px solid var(--b2);border-radius:7px;
+  font-size:.85rem;font-family:var(--mono);text-align:center;background:var(--s3);
+  color:var(--muted);font-weight:700;outline:none;transition:all .15s}
+.row input.has{border-color:var(--teal);color:var(--teal);background:rgba(20,184,166,.12)}
+.btn{border:none;border-radius:9px;font-weight:700;cursor:pointer;transition:all .15s;
+  display:flex;align-items:center;justify-content:center;gap:5px;color:#fff}
+.btn:active{transform:scale(.97)}
+.btn:disabled{opacity:.5;pointer-events:none}
+.bar{background:var(--s1);border-top:1px solid var(--b1);padding:8px;display:flex;gap:8px;flex-shrink:0}
+.b-teal{background:var(--teal)} .b-amber{background:var(--amber);color:#000}
+.b-red{background:rgba(239,68,68,.2);color:var(--red);border:1.5px solid var(--red)}
+.b-ghost{background:var(--s3);color:var(--muted);border:1px solid var(--b2)}
+.head{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;
+  background:var(--s2);border-bottom:1px solid var(--b1);flex-shrink:0}
+.head .t{font-size:.68rem;font-family:var(--mono);color:var(--muted);letter-spacing:.1em;text-transform:uppercase}
+#toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(100px);
+  background:var(--s3);border:1px solid var(--b2);padding:11px 18px;border-radius:11px;
+  font-size:.8rem;font-weight:600;z-index:999;transition:transform .25s;max-width:90vw;text-align:center}
+#toast.on{transform:translateX(-50%) translateY(0)}
+#toast.ok{border-color:var(--teal);color:var(--teal)}
+#toast.err{border-color:var(--red);color:var(--red)}
+.stab{flex:1;text-align:center;padding:8px;border-radius:8px;font-size:.75rem;font-weight:700;
+  color:var(--muted);background:var(--s3);cursor:pointer;border:1px solid var(--b2);transition:all .15s}
+.stab.on{color:var(--teal);border-color:var(--teal);background:rgba(20,184,166,.12)}
+.srow{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--faint);
+  background:var(--s1);margin-bottom:3px;border-radius:7px;border:1px solid transparent}
+.srow.drag{opacity:.4;border-color:var(--teal)}
+.srow.over{border-color:var(--teal);background:var(--s3)}
+.srow .h{color:var(--muted);font-size:1rem;cursor:grab;touch-action:none;padding:0 2px}
+.srow .n{flex:1;font-size:.8rem}
+.srow .idx{font-family:var(--mono);font-size:.65rem;color:var(--muted);min-width:20px}
+.mv{background:var(--s3);border:1px solid var(--b2);border-radius:6px;width:30px;height:30px;
+  color:var(--muted);font-size:.8rem;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.mv:active{background:var(--teal);color:#000}
+.grp{font-size:.62rem;font-family:var(--mono);color:var(--muted);padding:10px 12px 5px;
+  letter-spacing:.08em;text-transform:uppercase;background:var(--bg)}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="navrow">
+    <span id="ind" onclick="saveNow(true)" title="Tap to save" style="font-size:.75rem;padding:0 8px;display:flex;align-items:center;cursor:pointer">🟢</span>
+    <div class="ntab on" onclick="show('fresh',this)">🐔 Whole Chicken</div>
+    <div class="ntab" onclick="show('goods',this)">📦 Goods</div>
+    <div class="ntab" onclick="show('kanz',this)">🏷 KANZ</div>
+    <div class="ntab" onclick="show('settings',this)">⚙️ Settings</div>
+  </div>
+</nav>
+
+<!-- FRESH WHOLE CHICKEN -->
+<div class="page on" id="pg-fresh">
+  <div class="head">
+    <div class="t">🐔 Fresh Whole Chicken</div>
+    <button class="btn b-ghost" style="padding:5px 10px;font-size:.7rem" onclick="clearSheet('fresh')">🧹 Clear</button>
+  </div>
+  <div class="list" id="list-fresh"></div>
+  <div class="bar">
+    <button class="btn b-red" style="padding:11px 12px;font-size:.75rem" onclick="killExcel()">❌</button>
+    <button class="btn b-teal" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('fresh','today')">📅 Today</button>
+    <button class="btn b-amber" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('fresh','next')">📆 Next Day</button>
+  </div>
+</div>
+
+<!-- GOODS -->
+<div class="page" id="pg-goods">
+  <div class="head">
+    <div class="t">📦 Goods</div>
+    <button class="btn b-ghost" style="padding:5px 10px;font-size:.7rem" onclick="clearSheet('goods')">🧹 Clear</button>
+  </div>
+  <div class="list" id="list-goods"></div>
+  <div class="bar">
+    <button class="btn b-red" style="padding:11px 12px;font-size:.75rem" onclick="killExcel()">❌</button>
+    <button class="btn b-teal" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('goods','today')">📅 Today</button>
+    <button class="btn b-amber" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('goods','next')">📆 Next Day</button>
+  </div>
+</div>
+
+<!-- KANZ -->
+<div class="page" id="pg-kanz">
+  <div class="head">
+    <div class="t">🏷 Kanz Almadam</div>
+    <button class="btn b-ghost" style="padding:5px 10px;font-size:.7rem" onclick="clearSheet('kanz')">🧹 Clear</button>
+  </div>
+  <div class="list" id="list-kanz"></div>
+  <div class="bar">
+    <button class="btn b-red" style="padding:11px 14px;font-size:.78rem" onclick="killExcel()">❌ Excel</button>
+    <button class="btn b-teal" style="flex:1;padding:11px;font-size:.85rem" onclick="printJob('kanz')">💾🖨 Save + Print</button>
+  </div>
+</div>
+
+<!-- SETTINGS -->
+<div class="page" id="pg-settings">
+  <div class="head">
+    <div class="t">⚙️ Settings — Reorder Products</div>
+  </div>
+  <div style="display:flex;gap:6px;padding:8px;background:var(--s2);border-bottom:1px solid var(--b1);flex-shrink:0">
+    <div class="stab on" onclick="setTab('fresh',this)">🐔 Chicken</div>
+    <div class="stab" onclick="setTab('goods',this)">📦 Goods</div>
+    <div class="stab" onclick="setTab('kanz',this)">🏷 KANZ</div>
+  </div>
+  <div class="list" id="list-settings"></div>
+  <div class="bar">
+    <button class="btn b-ghost" style="flex:1;padding:11px;font-size:.78rem" onclick="resetOrder()">↺ Reset Order</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ══ CONFIG ══
+const CLIENT_ID='11424af3-de3a-4401-ace9-325149977264';
+const XLSX_PATH='Desktop/new print/print_stickers.xlsx';
+const SIGNAL_PATH='sticker_signal.json';
+
+const SHEETS={
+  kanz:{name:'KANZ ALMADAM',start:3,items:['Bone','Breast','Chicken BLW Wings','Drum ','Gizzard','Heart ','Liver','Mix Chicken','Neck','Shawrma ','Skin','Thigh','Thigh BL-SL','Thigh BL-SO','Thigh SL','Whole Legs','legs BL-SL','Whole legs BL-SO','Whole legs SL','Wings','MINCED','Whole Legs 500GR','WINGS 500GM','THIGH 500.GM','Tail']},
+  goods:{name:'goods',start:3,items:['Bone','Breast','Chicken BLW Wings','Drum ','Gizzard','Heart ','Liver','Mix Chicken','Neck','Shawrma ','Skin','Thigh','Thigh BL-SL','Thigh BL-SO','Thigh SL','Whole Legs','legs BL-SL','Whole legs BL-SO','Whole legs SL','Wings','MINCED','Whole Legs 500GR']},
+  fresh:{name:'fresh whole chicken',start:2,items:['No Size','500 GR','550 GR','600 GR','650 GR','700 GR','750 GR','800 GR','850 GR','900 GR','950 GR','1000 GR','1050 GR','1100 GR','1150 GR','1200 GR','1250 GR','1300 GR','1350 GR','1400 GR']}
+};
+
+const LS={
+  get:(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d;}catch{return d;}},
+  set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch{}}
+};
+
+let data=LS.get('stk_data',{kanz:{},goods:{},fresh:{}});
+let order=LS.get('stk_order',{});
+let msalApp=null;
+let _setTab='fresh';
+
+// ترتيب الصفوف حسب تفضيل المستخدم (الصف بالإكسيل ما بيتغير)
+function getRows(key){
+  const cfg=SHEETS[key];
+  const def=cfg.items.map((n,i)=>({row:cfg.start+i,name:n.trim()}));
+  const saved=order[key];
+  if(!saved||!saved.length) return def;
+  const map=new Map(def.map(d=>[d.row,d]));
+  const out=[];
+  saved.forEach(r=>{ if(map.has(r)){out.push(map.get(r));map.delete(r);} });
+  map.forEach(v=>out.push(v)); // أي منتج جديد ينضاف بالآخر
+  return out;
+}
+function saveOrder(key,rows){
+  order[key]=rows.map(r=>r.row);
+  LS.set('stk_order',order);
+}
+
+// ══ UI ══
+function toast(m,t){
+  const e=document.getElementById('toast');
+  e.textContent=m; e.className='on '+(t||'');
+  clearTimeout(e._t); e._t=setTimeout(()=>{e.className='';},2600);
+}
+function ind(s){
+  const e=document.getElementById('ind');
+  if(!e)return;
+  e.textContent={dirty:'🟠',saving:'☁️',saved:'✅',err:'🔴'}[s]||'🟢';
+  if(s==='saved')setTimeout(()=>{e.textContent='🟢';},1800);
+}
+function show(p,t){
+  document.querySelectorAll('.page').forEach(x=>x.classList.remove('on'));
+  document.querySelectorAll('.ntab').forEach(x=>x.classList.remove('on'));
+  document.getElementById('pg-'+p).classList.add('on');
+  if(t)t.classList.add('on');
+}
+
+function render(key){
+  const el=document.getElementById('list-'+key);
+  el.innerHTML=getRows(key).map(({row,name})=>{
+    const v=data[key][row]||'';
+    return `<div class="row">
+      <span class="name">${name}</span>
+      <input type="number" min="0" step="1" inputmode="numeric" value="${v}" placeholder="0"
+        data-key="${key}" data-row="${row}"
+        onfocus="this.select()" onclick="this.select()"
+        oninput="onInput(this)" onkeyup="onInput(this)"
+        onkeydown="if(event.key==='Enter'){event.preventDefault();nextInput(this);}"/>
+    </div>`;
+  }).join('');
+}
+
+function onInput(el){
+  const k=el.dataset.key, r=el.dataset.row, v=parseInt(el.value)||0;
+  if(v>0){data[k][r]=v;el.classList.add('has');}
+  else{delete data[k][r];el.classList.remove('has');}
+  LS.set('stk_data',data);
+  ind('dirty');
+}
+function nextInput(el){
+  const all=[...el.closest('.list').querySelectorAll('input')];
+  const i=all.indexOf(el);
+  if(all[i+1]){all[i+1].focus();all[i+1].select();}
+  else el.blur();
+}
+function clearSheet(key){
+  if(!confirm('Clear all quantities?'))return;
+  data[key]={};
+  LS.set('stk_data',data);
+  render(key);
+  toast('✓ Cleared','ok');
+}
+
+// ══ SETTINGS: REORDER ══
+function setTab(key,el){
+  _setTab=key;
+  document.querySelectorAll('.stab').forEach(x=>x.classList.remove('on'));
+  if(el)el.classList.add('on');
+  renderSettings();
+}
+function renderSettings(){
+  const rows=getRows(_setTab);
+  document.getElementById('list-settings').innerHTML=rows.map((r,i)=>`
+    <div class="srow" draggable="true" data-i="${i}"
+      ondragstart="dgStart(event,${i})" ondragover="dgOver(event,${i})"
+      ondrop="dgDrop(event,${i})" ondragend="dgEnd(event)"
+      ontouchstart="tStart(event,${i})" ontouchmove="tMove(event)" ontouchend="tEnd(event)">
+      <span class="h">⠿</span>
+      <span class="idx">${i+1}</span>
+      <span class="n">${r.name}</span>
+      <button class="mv" onclick="move(${i},-1)">▲</button>
+      <button class="mv" onclick="move(${i},1)">▼</button>
+    </div>`).join('');
+}
+function move(i,d){
+  const rows=getRows(_setTab);
+  const j=i+d;
+  if(j<0||j>=rows.length)return;
+  [rows[i],rows[j]]=[rows[j],rows[i]];
+  saveOrder(_setTab,rows);
+  renderSettings();
+  render(_setTab);
+}
+function reorderTo(from,to){
+  if(from===to)return;
+  const rows=getRows(_setTab);
+  const [m]=rows.splice(from,1);
+  rows.splice(to,0,m);
+  saveOrder(_setTab,rows);
+  renderSettings();
+  render(_setTab);
+}
+function resetOrder(){
+  if(!confirm('Reset to default order?'))return;
+  delete order[_setTab];
+  LS.set('stk_order',order);
+  renderSettings();
+  render(_setTab);
+  toast('✓ Order reset','ok');
+}
+
+// Drag (desktop)
+let _dgFrom=null;
+function dgStart(e,i){_dgFrom=i;e.currentTarget.classList.add('drag');}
+function dgOver(e,i){
+  e.preventDefault();
+  document.querySelectorAll('.srow').forEach(x=>x.classList.remove('over'));
+  if(_dgFrom!==null&&_dgFrom!==i)e.currentTarget.classList.add('over');
+}
+function dgDrop(e,i){
+  e.preventDefault();
+  document.querySelectorAll('.srow').forEach(x=>x.classList.remove('over'));
+  if(_dgFrom!==null)reorderTo(_dgFrom,i);
+  _dgFrom=null;
+}
+function dgEnd(e){
+  document.querySelectorAll('.srow').forEach(x=>x.classList.remove('drag','over'));
+  _dgFrom=null;
+}
+
+// Touch drag (mobile) - بس من المقبض ⠿
+let _tFrom=null,_tOver=null;
+function tStart(e,i){
+  if(!e.target.classList.contains('h'))return;
+  _tFrom=i; _tOver=i;
+  e.currentTarget.classList.add('drag');
+}
+function tMove(e){
+  if(_tFrom===null)return;
+  e.preventDefault();
+  const t=e.touches[0];
+  const el=document.elementFromPoint(t.clientX,t.clientY)?.closest('.srow');
+  document.querySelectorAll('.srow').forEach(x=>x.classList.remove('over'));
+  if(el){
+    _tOver=parseInt(el.dataset.i);
+    if(_tOver!==_tFrom)el.classList.add('over');
+  }
+}
+function tEnd(e){
+  if(_tFrom===null)return;
+  document.querySelectorAll('.srow').forEach(x=>x.classList.remove('drag','over'));
+  if(_tOver!==null&&_tOver!==_tFrom)reorderTo(_tFrom,_tOver);
+  _tFrom=null;_tOver=null;
+}
+
+// ══ ONEDRIVE ══
+async function initMsal(){
+  if(msalApp)return;
+  msalApp=new msal.PublicClientApplication({
+    auth:{clientId:CLIENT_ID,authority:'https://login.microsoftonline.com/consumers',
+      redirectUri:window.location.origin+window.location.pathname},
+    cache:{cacheLocation:'localStorage'}
+  });
+  await msalApp.initialize();
+}
+async function getToken(){
+  await initMsal();
+  const scopes=['Files.ReadWrite'];
+  try{
+    const acc=msalApp.getAllAccounts();
+    if(acc.length){const r=await msalApp.acquireTokenSilent({scopes,account:acc[0]});return r.accessToken;}
+  }catch(e){}
+  const r=await msalApp.loginPopup({scopes});
+  return r.accessToken;
+}
+
+// كتابة العمود B للشيت المحدد
+async function writeSheet(key,token){
+  const cfg=SHEETS[key];
+  const fr=await fetch(`https://graph.microsoft.com/v1.0/me/drive/root:/${XLSX_PATH}`,
+    {headers:{'Authorization':'Bearer '+token}});
+  if(!fr.ok) throw new Error('Excel file not found');
+  const fid=(await fr.json()).id;
+  const base=`https://graph.microsoft.com/v1.0/me/drive/items/${fid}/workbook/worksheets/${encodeURIComponent(cfg.name)}`;
+
+  const n=cfg.items.length;
+  const vals=[];
+  for(let i=0;i<n;i++){
+    const row=cfg.start+i;
+    vals.push([data[key][row]||null]);
+  }
+  const addr=`B${cfg.start}:B${cfg.start+n-1}`;
+  const r=await fetch(`${base}/range(address='${addr}')`,{
+    method:'PATCH',
+    headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},
+    body:JSON.stringify({values:vals})
+  });
+  if(!r.ok) throw new Error('Write failed: '+(await r.text()).slice(0,80));
+}
+
+async function sendSignal(jobs,token,saveTs){
+  const r=await fetch(`https://graph.microsoft.com/v1.0/me/drive/root:/${SIGNAL_PATH}:/content`,{
+    method:'PUT',
+    headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},
+    body:JSON.stringify({jobs,ts:Date.now(),save_ts:saveTs||0})
+  });
+  if(!r.ok) throw new Error('Signal failed');
+}
+
+// ══ ACTIONS ══
+async function saveNow(showMsg){
+  ind('saving');
+  try{
+    const token=await getToken();
+    const cur=document.querySelector('.page.on').id.replace('pg-','');
+    await writeSheet(cur,token);
+    ind('saved');
+    if(showMsg)toast('✓ Saved to Excel','ok');
+  }catch(e){
+    ind('err');
+    if(showMsg)toast('✗ '+e.message,'err');
+  }
+}
+
+async function printJob(key,day){
+  const cfg=SHEETS[key];
+  const count=Object.keys(data[key]).length;
+  if(!count){toast('No quantities entered','err');return;}
+
+  const btns=document.querySelectorAll('#pg-'+key+' .bar button');
+  btns.forEach(b=>b.disabled=true);
+  ind('saving');
+  try{
+    const token=await getToken();
+    // 1. سجل الوقت قبل الحفظ
+    const saveTs=Date.now();
+    // 2. اكتب الكميات بالإكسيل
+    await writeSheet(key,token);
+    ind('saved');
+    // 3. أرسل الإشارة
+    await sendSignal([{action:'print_sticker',sheet:key,day:day||'',_id:Date.now()+Math.random()}],token,saveTs);
+    const lbl=key==='kanz'?'KANZ':(day==='next'?'Next Day':'Today');
+    toast(`✓ ${count} products → printing ${lbl}...`,'ok');
+  }catch(e){
+    ind('err');
+    toast('✗ '+e.message,'err');
+  }finally{
+    btns.forEach(b=>b.disabled=false);
+  }
+}
+
+async function killExcel(){
+  try{
+    const token=await getToken();
+    await sendSignal([{action:'kill_excel',_id:Date.now()+Math.random()}],token,0);
+    toast('✓ Closing Excel...','ok');
+  }catch(e){toast('✗ '+e.message,'err');}
+}
+
+// ══ INIT ══
+render('fresh'); render('goods'); render('kanz'); renderSettings();
+document.querySelectorAll('input').forEach(i=>{if(i.value)i.classList.add('has');});
+</script>
+</body>
+</html>
