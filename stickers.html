@@ -149,9 +149,11 @@ nav{background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0}
 <script>
 // ══ CONFIG ══
 const CLIENT_ID='11424af3-de3a-4401-ace9-325149977264';
-let XLSX_PATH=LS_raw('stk_xlsx_path')||'Desktop/new print/print_stickers.xlsx';
+let XLSX_PATH=LS_raw('stk_xlsx_path')||'print stickers.xlsx';
 let _fileId=LS_raw('stk_file_id')||null;
 function LS_raw(k){try{return localStorage.getItem(k);}catch{return null;}}
+// نظّف الكاش القديم لو المسار تغيّر
+try{ if(localStorage.getItem('stk_xlsx_path')&&localStorage.getItem('stk_xlsx_path').includes('Desktop')){localStorage.removeItem('stk_xlsx_path');localStorage.removeItem('stk_file_id');} }catch{}
 function LS_rawSet(k,v){try{localStorage.setItem(k,v);}catch{}}
 const SIGNAL_PATH='sticker_signal.json';
 
@@ -397,7 +399,7 @@ async function findFile(token){
     _fileId=null;
   }
   // 2) جرّب المسار المعروف
-  const paths=[XLSX_PATH,'Desktop/new print/print_stickers.xlsx','new print/print_stickers.xlsx','print_stickers.xlsx'];
+  const paths=[XLSX_PATH,'print stickers.xlsx','print_stickers.xlsx','Desktop/new print/print stickers.xlsx','Desktop/new print/print_stickers.xlsx'];
   for(const p of paths){
     try{
       const r=await fetch(`https://graph.microsoft.com/v1.0/me/drive/root:/${p.split('/').map(encodeURIComponent).join('/')}`,{headers:H});
@@ -411,10 +413,10 @@ async function findFile(token){
   }
   // 3) ابحث بكل الـ OneDrive
   try{
-    const r=await fetch(`https://graph.microsoft.com/v1.0/me/drive/root/search(q='print_stickers')?$top=25`,{headers:H});
+    const r=await fetch(`https://graph.microsoft.com/v1.0/me/drive/root/search(q='print stickers')?$top=25`,{headers:H});
     if(r.ok){
       const j=await r.json();
-      const hit=(j.value||[]).find(x=>x.name&&x.name.toLowerCase().startsWith('print_stickers')&&x.name.toLowerCase().endsWith('.xlsx'));
+      const hit=(j.value||[]).find(x=>x.name&&/^print[ _]stickers/i.test(x.name)&&x.name.toLowerCase().endsWith('.xlsx'));
       if(hit){
         _fileId=hit.id;
         LS_rawSet('stk_file_id',hit.id);
@@ -423,7 +425,7 @@ async function findFile(token){
       }
     }
   }catch(e){}
-  throw new Error('print_stickers.xlsx not found in OneDrive');
+  throw new Error('print stickers.xlsx not found in OneDrive');
 }
 
 // كتابة العمود B للشيت المحدد
