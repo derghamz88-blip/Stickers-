@@ -31,14 +31,19 @@ nav{background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0}
 .row{display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--faint)}
 .row:nth-child(odd){background:var(--s1)}
 .row .name{flex:1;font-size:.82rem}
-.row input{width:62px;padding:7px 6px;border:1.5px solid var(--b2);border-radius:7px;
-  font-size:.85rem;font-family:var(--mono);text-align:center;background:var(--s3);
+.row input{width:58px;padding:9px 4px;border:1.5px solid var(--b2);border-radius:7px;
+  font-size:.9rem;font-family:var(--mono);text-align:center;background:var(--s3);
   color:var(--muted);font-weight:700;outline:none;transition:all .15s}
 .row input.has{border-color:var(--teal);color:var(--teal);background:rgba(20,184,166,.12)}
+.stp{width:42px;height:38px;border-radius:8px;border:1.5px solid var(--b2);background:var(--s3);
+  color:var(--muted);font-size:.72rem;font-weight:800;cursor:pointer;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-family:var(--mono);transition:all .1s}
+.stp:active{background:var(--teal);color:#000;border-color:var(--teal);transform:scale(.94)}
+.stp.minus:active{background:var(--red);border-color:var(--red);color:#fff}
 .btn{border:none;border-radius:9px;font-weight:700;cursor:pointer;transition:all .15s;
   display:flex;align-items:center;justify-content:center;gap:5px;color:#fff}
 .btn:active{transform:scale(.97)}
-.btn:disabled{opacity:.5;pointer-events:none}
+.btn:disabled{opacity:.35;pointer-events:none}
 .bar{background:var(--s1);border-top:1px solid var(--b1);padding:8px;display:flex;gap:8px;
   flex-shrink:0;position:sticky;bottom:0;z-index:10;padding-bottom:calc(8px + env(safe-area-inset-bottom))}
 .b-teal{background:var(--teal)} .b-amber{background:var(--amber);color:#000}
@@ -47,9 +52,10 @@ nav{background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0}
 .head{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;
   background:var(--s2);border-bottom:1px solid var(--b1);flex-shrink:0}
 .head .t{font-size:.68rem;font-family:var(--mono);color:var(--muted);letter-spacing:.1em;text-transform:uppercase}
-#toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(100px);
-  background:var(--s3);border:1px solid var(--b2);padding:11px 18px;border-radius:11px;
-  font-size:.8rem;font-weight:600;z-index:999;transition:transform .25s;max-width:90vw;text-align:center}
+#toast{position:fixed;top:56px;left:50%;transform:translateX(-50%) translateY(-120px);
+  background:var(--s3);border:1px solid var(--b2);padding:10px 16px;border-radius:11px;
+  font-size:.78rem;font-weight:600;z-index:999;transition:transform .25s;max-width:88vw;text-align:center;
+  box-shadow:0 6px 20px rgba(0,0,0,.5)}
 #toast.on{transform:translateX(-50%) translateY(0)}
 #toast.ok{border-color:var(--teal);color:var(--teal)}
 #toast.err{border-color:var(--red);color:var(--red)}
@@ -86,7 +92,10 @@ nav{background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0}
 <div class="page on" id="pg-fresh">
   <div class="head">
     <div class="t">🐔 Fresh Whole Chicken</div>
-    <button class="btn b-ghost" style="padding:5px 10px;font-size:.7rem" onclick="clearSheet('fresh')">🧹 Clear</button>
+    <div style="display:flex;gap:6px">
+      <button class="btn b-ghost undoBtn" style="padding:5px 10px;font-size:.7rem" onclick="undo()" disabled>↶ Undo</button>
+      <button class="btn b-ghost" style="padding:5px 10px;font-size:.7rem" onclick="clearSheet('fresh')">🧹 Clear</button>
+    </div>
   </div>
   <div class="list" id="list-fresh"></div>
   <div class="bar">
@@ -100,7 +109,10 @@ nav{background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0}
 <div class="page" id="pg-goods">
   <div class="head">
     <div class="t">📦 Goods</div>
-    <button class="btn b-ghost" style="padding:5px 10px;font-size:.7rem" onclick="clearSheet('goods')">🧹 Clear</button>
+    <div style="display:flex;gap:6px">
+      <button class="btn b-ghost undoBtn" style="padding:5px 10px;font-size:.7rem" onclick="undo()" disabled>↶ Undo</button>
+      <button class="btn b-ghost" style="padding:5px 10px;font-size:.7rem" onclick="clearSheet('goods')">🧹 Clear</button>
+    </div>
   </div>
   <div class="list" id="list-goods"></div>
   <div class="bar">
@@ -114,7 +126,10 @@ nav{background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0}
 <div class="page" id="pg-kanz">
   <div class="head">
     <div class="t">🏷 Kanz Almadam</div>
-    <button class="btn b-ghost" style="padding:5px 10px;font-size:.7rem" onclick="clearSheet('kanz')">🧹 Clear</button>
+    <div style="display:flex;gap:6px">
+      <button class="btn b-ghost undoBtn" style="padding:5px 10px;font-size:.7rem" onclick="undo()" disabled>↶ Undo</button>
+      <button class="btn b-ghost" style="padding:5px 10px;font-size:.7rem" onclick="clearSheet('kanz')">🧹 Clear</button>
+    </div>
   </div>
   <div class="list" id="list-kanz"></div>
   <div class="bar">
@@ -173,6 +188,50 @@ let order=LS.get('stk_order',{});
 let msalApp=null;
 let _setTab='fresh';
 
+// ── Undo ──
+let _undo=[];
+let _undoLast={k:null,t:0};
+const UNDO_MAX=40;
+function snapshot(key,row){
+  const now=Date.now();
+  const id=key+':'+row;
+  // ادمج التعديلات المتتالية على نفس المنتج خلال ثانية
+  if(_undoLast.k===id && now-_undoLast.t<1000){_undoLast.t=now;return;}
+  _undoLast={k:id,t:now};
+  _undo.push({key,data:JSON.parse(JSON.stringify(data[key]))});
+  if(_undo.length>UNDO_MAX)_undo.shift();
+  updUndo();
+}
+function snapshotAll(key){
+  _undoLast={k:null,t:0};
+  _undo.push({key,data:JSON.parse(JSON.stringify(data[key]))});
+  if(_undo.length>UNDO_MAX)_undo.shift();
+  updUndo();
+}
+function undo(){
+  if(!_undo.length){toast('Nothing to undo');return;}
+  const s=_undo.pop();
+  data[s.key]=s.data;
+  LS.set('stk_data',data);
+  render(s.key);
+  _undoLast={k:null,t:0};
+  updUndo();
+  // انتقل للصفحة لو كنت بغيرها
+  const cur=document.querySelector('.page.on')?.id.replace('pg-','');
+  if(cur!==s.key&&cur!=='settings'){
+    const tabs={fresh:0,goods:1,kanz:2};
+    const el=document.querySelectorAll('.ntab')[tabs[s.key]];
+    if(el)show(s.key,el);
+  }
+  toast('↶ Undone','ok');
+}
+function updUndo(){
+  document.querySelectorAll('.undoBtn').forEach(b=>{
+    b.disabled=!_undo.length;
+    b.textContent='↶ Undo'+(_undo.length?' ('+_undo.length+')':'');
+  });
+}
+
 // ترتيب الصفوف حسب تفضيل المستخدم (الصف بالإكسيل ما بيتغير)
 function getRows(key){
   const cfg=SHEETS[key];
@@ -191,10 +250,14 @@ function saveOrder(key,rows){
 }
 
 // ══ UI ══
+let _toastT=null;
 function toast(m,t){
   const e=document.getElementById('toast');
-  e.textContent=m; e.className='on '+(t||'');
-  clearTimeout(e._t); e._t=setTimeout(()=>{e.className='';},2600);
+  if(!e)return;
+  if(_toastT){clearTimeout(_toastT);_toastT=null;}
+  e.textContent=m;
+  e.className='on '+(t||'');
+  _toastT=setTimeout(()=>{e.className='';_toastT=null;},2200);
 }
 function ind(s){
   const e=document.getElementById('ind');
@@ -215,21 +278,31 @@ function render(key){
     const v=data[key][row]||'';
     return `<div class="row">
       <span class="name">${name}</span>
+      <button class="stp minus" onclick="step(this,-10)">−10</button>
       <input type="number" min="0" step="1" inputmode="numeric" value="${v}" placeholder="0"
         data-key="${key}" data-row="${row}"
         onfocus="this.select()" onclick="this.select()"
         oninput="onInput(this)" onkeyup="onInput(this)"
         onkeydown="if(event.key==='Enter'){event.preventDefault();nextInput(this);}"/>
+      <button class="stp" onclick="step(this,10)">+10</button>
     </div>`;
   }).join('');
 }
 
 function onInput(el){
   const k=el.dataset.key, r=el.dataset.row, v=parseInt(el.value)||0;
+  snapshot(k,r);
   if(v>0){data[k][r]=v;el.classList.add('has');}
   else{delete data[k][r];el.classList.remove('has');}
   LS.set('stk_data',data);
   ind('dirty');
+}
+function step(btn,d){
+  const row=btn.closest('.row');
+  const el=row.querySelector('input');
+  const v=(parseInt(el.value)||0)+d;
+  el.value=v>0?v:'';
+  onInput(el);
 }
 function nextInput(el){
   const all=[...el.closest('.list').querySelectorAll('input')];
@@ -238,7 +311,9 @@ function nextInput(el){
   else el.blur();
 }
 function clearSheet(key){
+  if(!Object.keys(data[key]).length){toast('Already empty');return;}
   if(!confirm('Clear all quantities?'))return;
+  snapshotAll(key);
   data[key]={};
   LS.set('stk_data',data);
   render(key);
@@ -511,6 +586,7 @@ async function killExcel(){
 // ══ INIT ══
 render('fresh'); render('goods'); render('kanz'); renderSettings();
 setTimeout(showAccount,1200);
+updUndo();
 document.querySelectorAll('input').forEach(i=>{if(i.value)i.classList.add('has');});
 </script>
 </body>
