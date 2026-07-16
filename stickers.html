@@ -510,12 +510,22 @@ async function writeSheet(key,token){
   const base=`https://graph.microsoft.com/v1.0/me/drive/items/${fid}/workbook/worksheets/${encodeURIComponent(cfg.name)}`;
 
   const n=cfg.items.length;
+  const addr=`B${cfg.start}:B${cfg.start+n-1}`;
+
+  // 1) امسح كل المدى أولاً - يضمن ما يضل أي رقم قديم
+  const clr=await fetch(`${base}/range(address='${addr}')/clear`,{
+    method:'POST',
+    headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},
+    body:JSON.stringify({applyTo:'Contents'})
+  });
+  if(!clr.ok) console.warn('Clear warn:',(await clr.text()).slice(0,60));
+
+  // 2) اكتب القيم الحالية (الفاضي = نص فارغ عشان يمسح فعلاً)
   const vals=[];
   for(let i=0;i<n;i++){
-    const row=cfg.start+i;
-    vals.push([data[key][row]||null]);
+    const v=data[key][cfg.start+i];
+    vals.push([(v&&v>0)?v:'']);
   }
-  const addr=`B${cfg.start}:B${cfg.start+n-1}`;
   const r=await fetch(`${base}/range(address='${addr}')`,{
     method:'PATCH',
     headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},
