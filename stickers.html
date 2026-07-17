@@ -84,6 +84,7 @@ nav{background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0}
     <div class="ntab on" onclick="show('fresh',this)">🐔 Whole Chicken</div>
     <div class="ntab" onclick="show('goods',this)">📦 Goods</div>
     <div class="ntab" onclick="show('kanz',this)">🏷 KANZ</div>
+    <div class="ntab" onclick="show('tender',this)">🍗 Tender</div>
     <div class="ntab" onclick="show('settings',this)">⚙️ Settings</div>
   </div>
 </nav>
@@ -138,6 +139,23 @@ nav{background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0}
   </div>
 </div>
 
+<!-- TENDER -->
+<div class="page" id="pg-tender">
+  <div class="head">
+    <div class="t">🍗 Tender</div>
+    <div style="display:flex;gap:6px">
+      <button class="btn b-ghost undoBtn" style="padding:5px 10px;font-size:.7rem" onclick="undo()" disabled>↶ Undo</button>
+      <button class="btn b-ghost" style="padding:5px 10px;font-size:.7rem" onclick="clearSheet('tender')">🧹 Clear</button>
+    </div>
+  </div>
+  <div class="list" id="list-tender"></div>
+  <div class="bar">
+    <button class="btn b-red" style="padding:11px 12px;font-size:.75rem" onclick="killExcel()">❌</button>
+    <button class="btn b-teal" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('tender','today')">📅 Today</button>
+    <button class="btn b-amber" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('tender','next')">📆 Next Day</button>
+  </div>
+</div>
+
 <!-- SETTINGS -->
 <div class="page" id="pg-settings">
   <div class="head">
@@ -147,6 +165,7 @@ nav{background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0}
     <div class="stab on" onclick="setTab('fresh',this)">🐔 Chicken</div>
     <div class="stab" onclick="setTab('goods',this)">📦 Goods</div>
     <div class="stab" onclick="setTab('kanz',this)">🏷 KANZ</div>
+    <div class="stab" onclick="setTab('tender',this)">🍗 Tender</div>
   </div>
   <div style="padding:10px 12px;background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0">
     <div style="font-size:.62rem;color:var(--muted);font-family:var(--mono);margin-bottom:4px">ONEDRIVE ACCOUNT</div>
@@ -175,7 +194,8 @@ const SIGNAL_PATH='sticker_signal.json';
 const SHEETS={
   kanz:{name:'KANZ ALMADAM',start:3,items:['Bone','Breast','Chicken BLW Wings','Drum ','Gizzard','Heart ','Liver','Mix Chicken','Neck','Shawrma ','Skin','Thigh','Thigh BL-SL','Thigh BL-SO','Thigh SL','Whole Legs','legs BL-SL','Whole legs BL-SO','Whole legs SL','Wings','MINCED','Whole Legs 500GR','WINGS 500GM','THIGH 500.GM','Tail']},
   goods:{name:'goods',start:3,items:['Bone','Breast','Chicken BLW Wings','Drum ','Gizzard','Heart ','Liver','Mix Chicken','Neck','Shawrma ','Skin','Thigh','Thigh BL-SL','Thigh BL-SO','Thigh SL','Whole Legs','legs BL-SL','Whole legs BL-SO','Whole legs SL','Wings','MINCED','Whole Legs 500GR']},
-  fresh:{name:'fresh whole chicken',start:2,items:['No Size','500 GR','550 GR','600 GR','650 GR','700 GR','750 GR','800 GR','850 GR','900 GR','950 GR','1000 GR','1050 GR','1100 GR','1150 GR','1200 GR','1250 GR','1300 GR','1350 GR','1400 GR']}
+  fresh:{name:'fresh whole chicken',start:2,items:['No Size','500 GR','550 GR','600 GR','650 GR','700 GR','750 GR','800 GR','850 GR','900 GR','950 GR','1000 GR','1050 GR','1100 GR','1150 GR','1200 GR','1250 GR','1300 GR','1350 GR','1400 GR']},
+  tender:{name:'tender',start:3,col:'A',items:['Chicken Breast Tenderized']}
 };
 
 const LS={
@@ -183,7 +203,8 @@ const LS={
   set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch{}}
 };
 
-let data=LS.get('stk_data',{kanz:{},goods:{},fresh:{}});
+let data=LS.get('stk_data',{kanz:{},goods:{},fresh:{},tender:{}});
+if(!data.tender)data.tender={};
 let order=LS.get('stk_order',{});
 let msalApp=null;
 let _setTab='fresh';
@@ -219,7 +240,7 @@ function undo(){
   // انتقل للصفحة لو كنت بغيرها
   const cur=document.querySelector('.page.on')?.id.replace('pg-','');
   if(cur!==s.key&&cur!=='settings'){
-    const tabs={fresh:0,goods:1,kanz:2};
+    const tabs={fresh:0,goods:1,kanz:2,tender:3};
     const el=document.querySelectorAll('.ntab')[tabs[s.key]];
     if(el)show(s.key,el);
   }
@@ -510,7 +531,8 @@ async function writeSheet(key,token){
   const base=`https://graph.microsoft.com/v1.0/me/drive/items/${fid}/workbook/worksheets/${encodeURIComponent(cfg.name)}`;
 
   const n=cfg.items.length;
-  const addr=`B${cfg.start}:B${cfg.start+n-1}`;
+  const col=cfg.col||'B';
+  const addr=`${col}${cfg.start}:${col}${cfg.start+n-1}`;
 
   // اكتب كل الأرقام - الفاضي = صفر صريح (يضمن مسح أي رقم قديم)
   const vals=[];
@@ -586,7 +608,7 @@ async function killExcel(){
 }
 
 // ══ INIT ══
-render('fresh'); render('goods'); render('kanz'); renderSettings();
+render('fresh'); render('goods'); render('kanz'); render('tender'); renderSettings();
 setTimeout(showAccount,1200);
 updUndo();
 document.querySelectorAll('input').forEach(i=>{if(i.value)i.classList.add('has');});
