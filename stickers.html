@@ -111,6 +111,7 @@ nav{background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0}
   <div class="head">
     <div class="t">📦 Goods</div>
     <div style="display:flex;gap:6px">
+      <button class="btn b-teal" style="padding:5px 10px;font-size:.7rem" onclick="addCustom('goods')">＋ صنف</button>
       <button class="btn b-ghost undoBtn" style="padding:5px 10px;font-size:.7rem" onclick="undo()" disabled>↶ Undo</button>
       <button class="btn b-ghost" style="padding:5px 10px;font-size:.7rem" onclick="clearSheet('goods')">🧹 Clear</button>
     </div>
@@ -128,6 +129,7 @@ nav{background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0}
   <div class="head">
     <div class="t">🏷 Kanz Almadam</div>
     <div style="display:flex;gap:6px">
+      <button class="btn b-teal" style="padding:5px 10px;font-size:.7rem" onclick="addCustom('kanz')">＋ صنف</button>
       <button class="btn b-ghost undoBtn" style="padding:5px 10px;font-size:.7rem" onclick="undo()" disabled>↶ Undo</button>
       <button class="btn b-ghost" style="padding:5px 10px;font-size:.7rem" onclick="clearSheet('kanz')">🧹 Clear</button>
     </div>
@@ -206,6 +208,22 @@ const LS={
 let data=LS.get('stk_data',{kanz:{},goods:{},fresh:{},tender:{}});
 if(!data.tender)data.tender={};
 let order=LS.get('stk_order',{});
+// أصناف مخصّصة يضيفها المستخدم (kanz و goods فقط) - تُكتب بآخر الشيت
+let customItems=LS.get('stk_custom',{kanz:[],goods:[]});
+if(!customItems.kanz)customItems.kanz=[];
+if(!customItems.goods)customItems.goods=[];
+
+// قائمة أصناف القسم = الأصلية + المخصّصة (لكل مخصّص صفّه بالإكسيل)
+function itemsOf(key){
+  const base=SHEETS[key].items.map((name,i)=>({name,row:SHEETS[key].start+i,custom:false}));
+  const extra=(customItems[key]||[]).map((c)=>({name:c.name,row:c.row,custom:true}));
+  return [...base,...extra];
+}
+// أول صف فاضي بعد كل الأصناف (الأصلية + المخصّصة)
+function nextFreeRow(key){
+  const rows=itemsOf(key).map(x=>x.row);
+  return rows.length ? Math.max(...rows)+1 : SHEETS[key].start;
+}
 let msalApp=null;
 let _setTab='fresh';
 
@@ -255,8 +273,7 @@ function updUndo(){
 
 // ترتيب الصفوف حسب تفضيل المستخدم (الصف بالإكسيل ما بيتغير)
 function getRows(key){
-  const cfg=SHEETS[key];
-  const def=cfg.items.map((n,i)=>({row:cfg.start+i,name:n.trim()}));
+  const def=itemsOf(key).map(x=>({row:x.row,name:x.name.trim(),custom:x.custom}));
   const saved=order[key];
   if(!saved||!saved.length) return def;
   const map=new Map(def.map(d=>[d.row,d]));
@@ -295,10 +312,11 @@ function show(p,t){
 
 function render(key){
   const el=document.getElementById('list-'+key);
-  el.innerHTML=getRows(key).map(({row,name})=>{
+  el.innerHTML=getRows(key).map(({row,name,custom})=>{
     const v=data[key][row]||'';
     return `<div class="row">
-      <span class="name">${name}</span>
+      <span class="name">${name}${custom?' <span style="font-size:.6rem;color:var(--teal)">•جديد</span>':''}</span>
+      ${custom?`<button class="stp" style="color:var(--red);border-color:var(--red)" onclick="delCustom('${key}',${row})">✕</button>`:''}
       <button class="stp minus" onclick="step(this,-10)">−10</button>
       <input type="number" min="0" step="1" inputmode="numeric" value="${v}" placeholder="0"
         data-key="${key}" data-row="${row}"
@@ -308,6 +326,29 @@ function render(key){
       <button class="stp" onclick="step(this,10)">+10</button>
     </div>`;
   }).join('');
+}
+
+// ── إضافة/حذف أصناف مخصّصة (kanz و goods) ──
+function addCustom(key){
+  const name=prompt('اسم الصنف الجديد:');
+  if(!name||!name.trim())return;
+  const row=nextFreeRow(key);
+  customItems[key].push({name:name.trim(),row});
+  LS.set('stk_custom',customItems);
+  render(key);
+  toast('✓ أُضيف — سيُكتب بالإكسيل عند الطباعة','ok');
+}
+function delCustom(key,row){
+  if(!confirm('حذف هذا الصنف؟'))return;
+  customItems[key]=(customItems[key]||[]).filter(c=>c.row!==row);
+  LS.set('stk_custom',customItems);
+  delete data[key][row];
+  LS.set('stk_data',data);
+  // نظّف من الترتيب المحفوظ
+  if(order[key])order[key]=order[key].filter(r=>r!==row);
+  LS.set('stk_order',order);
+  render(key);
+  toast('✓ حُذف','ok');
 }
 
 function onInput(el){
@@ -524,28 +565,40 @@ async function findFile(token){
   throw new Error('print stickers.xlsx not found in OneDrive');
 }
 
-// كتابة العمود B للشيت المحدد
+// كتابة الكميات (عمود B) + أسماء الأصناف المخصّصة (عمود C)
 async function writeSheet(key,token){
   const cfg=SHEETS[key];
   const fid=await findFile(token);
   const base=`https://graph.microsoft.com/v1.0/me/drive/items/${fid}/workbook/worksheets/${encodeURIComponent(cfg.name)}`;
 
-  const n=cfg.items.length;
+  const all=itemsOf(key);                       // الأصلية + المخصّصة
+  const rows=all.map(x=>x.row);
+  const startRow=Math.min(...rows), endRow=Math.max(...rows);
   const col=cfg.col||'B';
-  const addr=`${col}${cfg.start}:${col}${cfg.start+n-1}`;
 
-  // اكتب كل الأرقام - الفاضي = صفر صريح (يضمن مسح أي رقم قديم)
-  const vals=[];
-  for(let i=0;i<n;i++){
-    const v=parseInt(data[key][cfg.start+i])||0;
-    vals.push([v]);
+  // 1) الكميات - صفر صريح للفاضي (يمسح القديم)
+  const qty=[];
+  for(let r=startRow;r<=endRow;r++){
+    qty.push([parseInt(data[key][r])||0]);
   }
-  const r=await fetch(`${base}/range(address='${addr}')`,{
+  const rQty=await fetch(`${base}/range(address='${col}${startRow}:${col}${endRow}')`,{
     method:'PATCH',
     headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},
-    body:JSON.stringify({values:vals})
+    body:JSON.stringify({values:qty})
   });
-  if(!r.ok) throw new Error('Write failed: '+(await r.text()).slice(0,80));
+  if(!rQty.ok) throw new Error('Write qty failed: '+(await rQty.text()).slice(0,80));
+
+  // 2) أسماء الأصناف المخصّصة بعمود C (فقط للأقسام اللي تدعم الإضافة)
+  const customs=(customItems[key]||[]);
+  if(customs.length){
+    for(const c of customs){
+      await fetch(`${base}/range(address='C${c.row}')`,{
+        method:'PATCH',
+        headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},
+        body:JSON.stringify({values:[[c.name]]})
+      });
+    }
+  }
 }
 
 async function sendSignal(jobs,token,saveTs){
