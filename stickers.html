@@ -191,7 +191,7 @@ function LS_raw(k){try{return localStorage.getItem(k);}catch{return null;}}
 // نظّف الكاش القديم لو المسار تغيّر
 try{ if(localStorage.getItem('stk_xlsx_path')&&localStorage.getItem('stk_xlsx_path').includes('Desktop')){localStorage.removeItem('stk_xlsx_path');localStorage.removeItem('stk_file_id');} }catch{}
 function LS_rawSet(k,v){try{localStorage.setItem(k,v);}catch{}}
-const SIGNAL_PATH='sticker_signal.json';
+const SIGNAL_PATH='Signal/stickers_signal.json';
 
 const SHEETS={
   kanz:{name:'KANZ ALMADAM',start:3,items:['Bone','Breast','Chicken BLW Wings','Drum ','Gizzard','Heart ','Liver','Mix Chicken','Neck','Shawrma ','Skin','Thigh','Thigh BL-SL','Thigh BL-SO','Thigh SL','Whole Legs','legs BL-SL','Whole legs BL-SO','Whole legs SL','Wings','MINCED','Whole Legs 500GR','WINGS 500GM','THIGH 500.GM','Tail']},
