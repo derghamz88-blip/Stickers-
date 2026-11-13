@@ -54,7 +54,7 @@ nav{background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0}
 .head .t{font-size:.68rem;font-family:var(--mono);color:var(--muted);letter-spacing:.1em;text-transform:uppercase}
 #toast{position:fixed;top:56px;left:50%;transform:translateX(-50%) translateY(-120px);
   background:var(--s3);border:1px solid var(--b2);padding:10px 16px;border-radius:11px;
-  font-size:.78rem;font-weight:600;z-index:999;transition:transform .25s;max-width:88vw;text-align:center;
+  font-size:.78rem;font-weight:600;z-index:999;transition:transform .25s;max-width:92vw;text-align:center;word-break:break-word;cursor:pointer;
   box-shadow:0 6px 20px rgba(0,0,0,.5)}
 #toast.on{transform:translateX(-50%) translateY(0)}
 #toast.ok{border-color:var(--teal);color:var(--teal)}
@@ -295,7 +295,8 @@ function toast(m,t){
   if(_toastT){clearTimeout(_toastT);_toastT=null;}
   e.textContent=m;
   e.className='on '+(t||'');
-  _toastT=setTimeout(()=>{e.className='';_toastT=null;},2200);
+  e.onclick=()=>{e.className='';};
+  _toastT=setTimeout(()=>{e.className='';_toastT=null;},t==='err'?12000:2200);
 }
 function ind(s){
   const e=document.getElementById('ind');
@@ -565,11 +566,62 @@ async function findFile(token){
   throw new Error('print stickers.xlsx not found in OneDrive');
 }
 
+// ── Graph helpers: خطأ كامل + إعادة محاولة + جلسة ──
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function fmtErr(status,txt){
+  let code='',msg='',inner='';
+  try{
+    const e=JSON.parse(txt).error||{};
+    code=e.code||''; msg=e.message||'';
+    let i=e.innerError||e.innererror;
+    while(i){ if(i.code)inner=i.code; i=i.innerError||i.innererror; }
+  }catch{ msg=(txt||'').slice(0,160); }
+  return `[${status}] ${code}${inner?' / '+inner:''}${msg?' — '+msg:''}`;
+}
+async function gfetch(url,opt,tries=4){
+  let last;
+  for(let i=0;i<tries;i++){
+    try{
+      const r=await fetch(url,opt);
+      if(r.ok) return r;
+      last=new Error(fmtErr(r.status,await r.text()));
+      last.status=r.status;
+      if(![409,423,429,500,502,503,504].includes(r.status)) throw Object.assign(last,{final:true});
+    }catch(e){ if(e.final) throw e; last=e; }
+    if(i<tries-1){ toast('⏳ إعادة المحاولة '+(i+1)+'/'+(tries-1)+'...'); await sleep(2000*(i+1)); }
+  }
+  throw last;
+}
+async function openSession(wb,token){
+  try{
+    const r=await fetch(wb+'/createSession',{method:'POST',
+      headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},
+      body:JSON.stringify({persistChanges:true})});
+    if(r.ok) return (await r.json()).id||null;
+  }catch(e){}
+  return null;
+}
+// تشخيص: ليش فشلت الكتابة؟
+async function diagnose(wb,token,sheetName,orig){
+  try{
+    const r=await fetch(wb+'/worksheets?$select=name',{headers:{'Authorization':'Bearer '+token}});
+    if(!r.ok) return 'الملف ما عم يفتح بـ Excel Online (مقفول/مفتوح عاللابتوب أو فيه مشكلة) '+fmtErr(r.status,await r.text());
+    const names=((await r.json()).value||[]).map(x=>x.name);
+    if(!names.some(n=>n.toLowerCase()===sheetName.toLowerCase()))
+      return 'الشيت "'+sheetName+'" مش موجود. الموجود: '+names.join(' | ');
+    return 'الملف والشيت موجودين بس الكتابة انرفضت (غالباً الملف مقفول أو الشيت محمي) '+orig;
+  }catch(e){ return orig; }
+}
+
 // كتابة الكميات (عمود B) + أسماء الأصناف المخصّصة (عمود C)
 async function writeSheet(key,token){
   const cfg=SHEETS[key];
   const fid=await findFile(token);
-  const base=`https://graph.microsoft.com/v1.0/me/drive/items/${fid}/workbook/worksheets/${encodeURIComponent(cfg.name)}`;
+  const wb=`https://graph.microsoft.com/v1.0/me/drive/items/${fid}/workbook`;
+  const base=`${wb}/worksheets/${encodeURIComponent(cfg.name)}`;
+  const sid=await openSession(wb,token);
+  const HW={'Authorization':'Bearer '+token,'Content-Type':'application/json'};
+  if(sid) HW['workbook-session-id']=sid;
 
   const all=itemsOf(key);                       // الأصلية + المخصّصة
   const rows=all.map(x=>x.row);
@@ -581,24 +633,24 @@ async function writeSheet(key,token){
   for(let r=startRow;r<=endRow;r++){
     qty.push([parseInt(data[key][r])||0]);
   }
-  const rQty=await fetch(`${base}/range(address='${col}${startRow}:${col}${endRow}')`,{
-    method:'PATCH',
-    headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},
-    body:JSON.stringify({values:qty})
-  });
-  if(!rQty.ok) throw new Error('Write qty failed: '+(await rQty.text()).slice(0,80));
+  try{
+    await gfetch(`${base}/range(address='${col}${startRow}:${col}${endRow}')`,{
+      method:'PATCH',headers:HW,body:JSON.stringify({values:qty})
+    });
+  }catch(e){
+    throw new Error(await diagnose(wb,token,cfg.name,e.message));
+  }
 
   // 2) أسماء الأصناف المخصّصة بعمود C (فقط للأقسام اللي تدعم الإضافة)
   const customs=(customItems[key]||[]);
   if(customs.length){
     for(const c of customs){
-      await fetch(`${base}/range(address='C${c.row}')`,{
-        method:'PATCH',
-        headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},
-        body:JSON.stringify({values:[[c.name]]})
+      await gfetch(`${base}/range(address='C${c.row}')`,{
+        method:'PATCH',headers:HW,body:JSON.stringify({values:[[c.name]]})
       });
     }
   }
+  if(sid){ try{ await fetch(wb+'/closeSession',{method:'POST',headers:HW}); }catch(e){} }
 }
 
 async function sendSignal(jobs,token,saveTs){
@@ -616,6 +668,7 @@ async function saveNow(showMsg){
   try{
     const token=await getToken();
     const cur=document.querySelector('.page.on').id.replace('pg-','');
+    if(!SHEETS[cur]){ind();if(showMsg)toast('افتح تاب المنتجات أول (مش Settings)');return;}
     await writeSheet(cur,token);
     ind('saved');
     if(showMsg)toast('✓ Saved to Excel','ok');
