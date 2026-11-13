@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>IAT Stickers</title>
+<script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"
+  onerror="this.onerror=null;var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js';document.head.appendChild(s);"></script>
+<style>
+:root{
+  --bg:#0a0e1a; --s1:#111827; --s2:#1a2234; --s3:#232d42;
+  --b1:#2a3548; --b2:#374357; --faint:rgba(255,255,255,.05);
+  --txt:#e8edf5; --muted:#7c8ba1;
+  --teal:#14b8a6; --amber:#fbbf24; --blue:#3b82f6; --red:#ef4444; --purple:#a855f7;
+  --mono:ui-monospace,'SF Mono',Menlo,monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{height:100%}
+body{background:var(--bg);color:var(--txt);font-family:system-ui,-apple-system,'Segoe UI',sans-serif;
+  height:100vh;height:100dvh;display:flex;flex-direction:column;overflow:hidden}
+nav{background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0}
+.navrow{display:flex;align-items:stretch;overflow-x:auto;scrollbar-width:none}
+.navrow::-webkit-scrollbar{display:none}
+.ntab{display:flex;align-items:center;justify-content:center;gap:5px;padding:0 14px;min-height:44px;
+  font-size:.8rem;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;flex-shrink:0;
+  border-bottom:2.5px solid transparent;transition:all .15s}
+.ntab.on{color:var(--txt);border-bottom-color:var(--teal);background:var(--s2)}
+.page{display:none;flex:1;flex-direction:column;overflow:hidden;min-height:0}
+.page.on{display:flex}
+.list{flex:1;overflow-y:auto;padding:8px;min-height:0;-webkit-overflow-scrolling:touch}
+.row{display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--faint)}
+.row:nth-child(odd){background:var(--s1)}
+.row .name{flex:1;font-size:.82rem}
+.row input{width:58px;padding:9px 4px;border:1.5px solid var(--b2);border-radius:7px;
+  font-size:.9rem;font-family:var(--mono);text-align:center;background:var(--s3);
+  color:var(--muted);font-weight:700;outline:none;transition:all .15s}
+.row input.has{border-color:var(--teal);color:var(--teal);background:rgba(20,184,166,.12)}
+.stp{width:42px;height:38px;border-radius:8px;border:1.5px solid var(--b2);background:var(--s3);
+  color:var(--muted);font-size:.72rem;font-weight:800;cursor:pointer;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-family:var(--mono);transition:all .1s}
+.stp:active{background:var(--teal);color:#000;border-color:var(--teal);transform:scale(.94)}
+.stp.minus:active{background:var(--red);border-color:var(--red);color:#fff}
+.btn{border:none;border-radius:9px;font-weight:700;cursor:pointer;transition:all .15s;
+  display:flex;align-items:center;justify-content:center;gap:5px;color:#fff}
+.btn:active{transform:scale(.97)}
+.btn:disabled{opacity:.35;pointer-events:none}
+.bar{background:var(--s1);border-top:1px solid var(--b1);padding:8px;display:flex;gap:8px;
+  flex-shrink:0;position:sticky;bottom:0;z-index:10;padding-bottom:calc(8px + env(safe-area-inset-bottom))}
+.b-teal{background:var(--teal)} .b-amber{background:var(--amber);color:#000}
+.b-red{background:rgba(239,68,68,.2);color:var(--red);border:1.5px solid var(--red)}
+.b-ghost{background:var(--s3);color:var(--muted);border:1px solid var(--b2)}
+.head{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;
+  background:var(--s2);border-bottom:1px solid var(--b1);flex-shrink:0}
+.head .t{font-size:.68rem;font-family:var(--mono);color:var(--muted);letter-spacing:.1em;text-transform:uppercase}
+#toast{position:fixed;top:56px;left:50%;transform:translateX(-50%) translateY(-120px);
+  background:var(--s3);border:1px solid var(--b2);padding:10px 16px;border-radius:11px;
+  font-size:.78rem;font-weight:600;z-index:999;transition:transform .25s;max-width:92vw;text-align:center;word-break:break-word;cursor:pointer;
+  box-shadow:0 6px 20px rgba(0,0,0,.5)}
+#toast.on{transform:translateX(-50%) translateY(0)}
+#toast.ok{border-color:var(--teal);color:var(--teal)}
+#toast.err{border-color:var(--red);color:var(--red)}
+.stab{flex:1;text-align:center;padding:8px;border-radius:8px;font-size:.75rem;font-weight:700;
+  color:var(--muted);background:var(--s3);cursor:pointer;border:1px solid var(--b2);transition:all .15s}
+.stab.on{color:var(--teal);border-color:var(--teal);background:rgba(20,184,166,.12)}
+.srow{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--faint);
+  background:var(--s1);margin-bottom:3px;border-radius:7px;border:1px solid transparent}
+.srow.drag{opacity:.4;border-color:var(--teal)}
+.srow.over{border-color:var(--teal);background:var(--s3)}
+.srow .h{color:var(--muted);font-size:1rem;cursor:grab;touch-action:none;padding:0 2px}
+.srow .n{flex:1;font-size:.8rem}
+.srow .idx{font-family:var(--mono);font-size:.65rem;color:var(--muted);min-width:20px}
+.mv{background:var(--s3);border:1px solid var(--b2);border-radius:6px;width:30px;height:30px;
+  color:var(--muted);font-size:.8rem;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.mv:active{background:var(--teal);color:#000}
+.grp{font-size:.62rem;font-family:var(--mono);color:var(--muted);padding:10px 12px 5px;
+  letter-spacing:.08em;text-transform:uppercase;background:var(--bg)}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="navrow">
+    <span id="ind" onclick="saveNow(true)" title="Tap to save" style="font-size:.75rem;padding:0 8px;display:flex;align-items:center;cursor:pointer">🟢</span>
+    <div class="ntab on" onclick="show('fresh',this)">🐔 Whole Chicken</div>
+    <div class="ntab" onclick="show('goods',this)">📦 Goods</div>
+    <div class="ntab" onclick="show('kanz',this)">🏷 KANZ</div>
+    <div class="ntab" onclick="show('tender',this)">🍗 Tender</div>
+    <div class="ntab" onclick="show('settings',this)">⚙️ Settings</div>
+  </div>
+</nav>
+
+<!-- FRESH WHOLE CHICKEN -->
+<div class="page on" id="pg-fresh">
+  <div class="head">
+    <div class="t">🐔 Fresh Whole Chicken</div>
+    <div style="display:flex;gap:6px">
+      <button class="btn b-ghost undoBtn" style="padding:5px 10px;font-size:.7rem" onclick="undo()" disabled>↶ Undo</button>
+      <button class="btn b-ghost" style="padding:5px 10px;font-size:.7rem" onclick="clearSheet('fresh')">🧹 Clear</button>
+    </div>
+  </div>
+  <div class="list" id="list-fresh"></div>
+  <div class="bar">
+    <button class="btn b-red" style="padding:11px 12px;font-size:.75rem" onclick="killExcel()">❌</button>
+    <button class="btn b-teal" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('fresh','today')">📅 Today</button>
+    <button class="btn b-amber" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('fresh','next')">📆 Next Day</button>
+  </div>
+</div>
+
+<!-- GOODS -->
+<div class="page" id="pg-goods">
+  <div class="head">
+    <div class="t">📦 Goods</div>
+    <div style="display:flex;gap:6px">
+      <button class="btn b-teal" style="padding:5px 10px;font-size:.7rem" onclick="addCustom('goods')">＋ صنف</button>
+      <button class="btn b-ghost undoBtn" style="padding:5px 10px;font-size:.7rem" onclick="undo()" disabled>↶ Undo</button>
+      <button class="btn b-ghost" style="padding:5px 10px;font-size:.7rem" onclick="clearSheet('goods')">🧹 Clear</button>
+    </div>
+  </div>
+  <div class="list" id="list-goods"></div>
+  <div class="bar">
+    <button class="btn b-red" style="padding:11px 12px;font-size:.75rem" onclick="killExcel()">❌</button>
+    <button class="btn b-teal" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('goods','today')">📅 Today</button>
+    <button class="btn b-amber" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('goods','next')">📆 Next Day</button>
+  </div>
+</div>
+
+<!-- KANZ -->
+<div class="page" id="pg-kanz">
+  <div class="head">
+    <div class="t">🏷 Kanz Almadam</div>
+    <div style="display:flex;gap:6px">
+      <button class="btn b-teal" style="padding:5px 10px;font-size:.7rem" onclick="addCustom('kanz')">＋ صنف</button>
+      <button class="btn b-ghost undoBtn" style="padding:5px 10px;font-size:.7rem" onclick="undo()" disabled>↶ Undo</button>
+      <button class="btn b-ghost" style="padding:5px 10px;font-size:.7rem" onclick="clearSheet('kanz')">🧹 Clear</button>
+    </div>
+  </div>
+  <div class="list" id="list-kanz"></div>
+  <div class="bar">
+    <button class="btn b-red" style="padding:11px 14px;font-size:.78rem" onclick="killExcel()">❌ Excel</button>
+    <button class="btn b-teal" style="flex:1;padding:11px;font-size:.85rem" onclick="printJob('kanz')">💾🖨 Save + Print</button>
+  </div>
+</div>
+
+<!-- TENDER -->
+<div class="page" id="pg-tender">
+  <div class="head">
+    <div class="t">🍗 Tender</div>
+    <div style="display:flex;gap:6px">
+      <button class="btn b-ghost undoBtn" style="padding:5px 10px;font-size:.7rem" onclick="undo()" disabled>↶ Undo</button>
+      <button class="btn b-ghost" style="padding:5px 10px;font-size:.7rem" onclick="clearSheet('tender')">🧹 Clear</button>
+    </div>
+  </div>
+  <div class="list" id="list-tender"></div>
+  <div class="bar">
+    <button class="btn b-red" style="padding:11px 12px;font-size:.75rem" onclick="killExcel()">❌</button>
+    <button class="btn b-teal" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('tender','today')">📅 Today</button>
+    <button class="btn b-amber" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('tender','next')">📆 Next Day</button>
+  </div>
+</div>
+
+<!-- SETTINGS -->
+<div class="page" id="pg-settings">
+  <div class="head">
+    <div class="t">⚙️ Settings — Reorder Products</div>
+  </div>
+  <div style="display:flex;gap:6px;padding:8px;background:var(--s2);border-bottom:1px solid var(--b1);flex-shrink:0">
+    <div class="stab on" onclick="setTab('fresh',this)">🐔 Chicken</div>
+    <div class="stab" onclick="setTab('goods',this)">📦 Goods</div>
+    <div class="stab" onclick="setTab('kanz',this)">🏷 KANZ</div>
+    <div class="stab" onclick="setTab('tender',this)">🍗 Tender</div>
+  </div>
+  <div style="padding:10px 12px;background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0">
+    <div style="font-size:.62rem;color:var(--muted);font-family:var(--mono);margin-bottom:4px">ONEDRIVE ACCOUNT</div>
+    <div id="acctInfo" style="font-size:.75rem;color:var(--teal);margin-bottom:8px">Not signed in</div>
+    <button class="btn b-red" style="width:100%;padding:9px;font-size:.75rem" onclick="switchAccount()">🔄 Sign out / Switch Account</button>
+  </div>
+  <div class="list" id="list-settings"></div>
+  <div class="bar">
+    <button class="btn b-ghost" style="flex:1;padding:11px;font-size:.78rem" onclick="resetOrder()">↺ Reset Order</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ══ CONFIG ══
+const CLIENT_ID='11424af3-de3a-4401-ace9-325149977264';
+let XLSX_PATH=LS_raw('stk_xlsx_path')||'print stickers.xlsx';
+let _fileId=LS_raw('stk_file_id')||null;
+function LS_raw(k){try{return localStorage.getItem(k);}catch{return null;}}
+// نظّف الكاش القديم لو المسار تغيّر
+try{ if(localStorage.getItem('stk_xlsx_path')&&localStorage.getItem('stk_xlsx_path').includes('Desktop')){localStorage.removeItem('stk_xlsx_path');localStorage.removeItem('stk_file_id');} }catch{}
+function LS_rawSet(k,v){try{localStorage.setItem(k,v);}catch{}}
+const SIGNAL_PATH='sticker_signal.json';
+
+const SHEETS={
+  kanz:{name:'KANZ ALMADAM',start:3,items:['Bone','Breast','Chicken BLW Wings','Drum ','Gizzard','Heart ','Liver','Mix Chicken','Neck','Shawrma ','Skin','Thigh','Thigh BL-SL','Thigh BL-SO','Thigh SL','Whole Legs','legs BL-SL','Whole legs BL-SO','Whole legs SL','Wings','MINCED','Whole Legs 500GR','WINGS 500GM','THIGH 500.GM','Tail']},
+  goods:{name:'goods',start:3,items:['Bone','Breast','Chicken BLW Wings','Drum ','Gizzard','Heart ','Liver','Mix Chicken','Neck','Shawrma ','Skin','Thigh','Thigh BL-SL','Thigh BL-SO','Thigh SL','Whole Legs','legs BL-SL','Whole legs BL-SO','Whole legs SL','Wings','MINCED','Whole Legs 500GR']},
+  fresh:{name:'fresh whole chicken',start:2,items:['No Size','500 GR','550 GR','600 GR','650 GR','700 GR','750 GR','800 GR','850 GR','900 GR','950 GR','1000 GR','1050 GR','1100 GR','1150 GR','1200 GR','1250 GR','1300 GR','1350 GR','1400 GR']},
+  tender:{name:'tender',start:3,col:'A',items:['Chicken Breast Tenderized']}
+};
+
+const LS={
+  get:(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d;}catch{return d;}},
+  set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch{}}
+};
+
+let data=LS.get('stk_data',{kanz:{},goods:{},fresh:{},tender:{}});
+if(!data.tender)data.tender={};
+let order=LS.get('stk_order',{});
+// أصناف مخصّصة يضيفها المستخدم (kanz و goods فقط) - تُكتب بآخر الشيت
+let customItems=LS.get('stk_custom',{kanz:[],goods:[]});
+if(!customItems.kanz)customItems.kanz=[];
+if(!customItems.goods)customItems.goods=[];
+
+// قائمة أصناف القسم = الأصلية + المخصّصة (لكل مخصّص صفّه بالإكسيل)
+function itemsOf(key){
+  const base=SHEETS[key].items.map((name,i)=>({name,row:SHEETS[key].start+i,custom:false}));
+  const extra=(customItems[key]||[]).map((c)=>({name:c.name,row:c.row,custom:true}));
+  return [...base,...extra];
+}
+// أول صف فاضي بعد كل الأصناف (الأصلية + المخصّصة)
+function nextFreeRow(key){
+  const rows=itemsOf(key).map(x=>x.row);
+  return rows.length ? Math.max(...rows)+1 : SHEETS[key].start;
+}
+let msalApp=null;
+let _setTab='fresh';
+
+// ── Undo ──
+let _undo=[];
+let _undoLast={k:null,t:0};
+const UNDO_MAX=40;
+function snapshot(key,row){
+  const now=Date.now();
+  const id=key+':'+row;
+  // ادمج التعديلات المتتالية على نفس المنتج خلال ثانية
+  if(_undoLast.k===id && now-_undoLast.t<1000){_undoLast.t=now;return;}
+  _undoLast={k:id,t:now};
+  _undo.push({key,data:JSON.parse(JSON.stringify(data[key]))});
+  if(_undo.length>UNDO_MAX)_undo.shift();
+  updUndo();
+}
+function snapshotAll(key){
+  _undoLast={k:null,t:0};
+  _undo.push({key,data:JSON.parse(JSON.stringify(data[key]))});
+  if(_undo.length>UNDO_MAX)_undo.shift();
+  updUndo();
+}
+function undo(){
+  if(!_undo.length){toast('Nothing to undo');return;}
+  const s=_undo.pop();
+  data[s.key]=s.data;
+  LS.set('stk_data',data);
+  render(s.key);
+  _undoLast={k:null,t:0};
+  updUndo();
+  // انتقل للصفحة لو كنت بغيرها
+  const cur=document.querySelector('.page.on')?.id.replace('pg-','');
+  if(cur!==s.key&&cur!=='settings'){
+    const tabs={fresh:0,goods:1,kanz:2,tender:3};
+    const el=document.querySelectorAll('.ntab')[tabs[s.key]];
+    if(el)show(s.key,el);
+  }
+  toast('↶ Undone','ok');
+}
+function updUndo(){
+  document.querySelectorAll('.undoBtn').forEach(b=>{
+    b.disabled=!_undo.length;
+    b.textContent='↶ Undo'+(_undo.length?' ('+_undo.length+')':'');
+  });
+}
+
+// ترتيب الصفوف حسب تفضيل المستخدم (الصف بالإكسيل ما بيتغير)
+function getRows(key){
+  const def=itemsOf(key).map(x=>({row:x.row,name:x.name.trim(),custom:x.custom}));
+  const saved=order[key];
+  if(!saved||!saved.length) return def;
+  const map=new Map(def.map(d=>[d.row,d]));
+  const out=[];
+  saved.forEach(r=>{ if(map.has(r)){out.push(map.get(r));map.delete(r);} });
+  map.forEach(v=>out.push(v)); // أي منتج جديد ينضاف بالآخر
+  return out;
+}
+function saveOrder(key,rows){
+  order[key]=rows.map(r=>r.row);
+  LS.set('stk_order',order);
+}
+
+// ══ UI ══
+let _toastT=null;
+function toast(m,t){
+  const e=document.getElementById('toast');
+  if(!e)return;
+  if(_toastT){clearTimeout(_toastT);_toastT=null;}
+  e.textContent=m;
+  e.className='on '+(t||'');
+  e.onclick=()=>{e.className='';};
+  _toastT=setTimeout(()=>{e.className='';_toastT=null;},t==='err'?12000:2200);
+}
+function ind(s){
+  const e=document.getElementById('ind');
+  if(!e)return;
+  e.textContent={dirty:'🟠',saving:'☁️',saved:'✅',err:'🔴'}[s]||'🟢';
+  if(s==='saved')setTimeout(()=>{e.textContent='🟢';},1800);
+}
+function show(p,t){
+  document.querySelectorAll('.page').forEach(x=>x.classList.remove('on'));
+  document.querySelectorAll('.ntab').forEach(x=>x.classList.remove('on'));
+  document.getElementById('pg-'+p).classList.add('on');
+  if(t)t.classList.add('on');
+}
+
+function render(key){
+  const el=document.getElementById('list-'+key);
+  el.innerHTML=getRows(key).map(({row,name,custom})=>{
+    const v=data[key][row]||'';
+    return `<div class="row">
+      <span class="name">${name}${custom?' <span style="font-size:.6rem;color:var(--teal)">•جديد</span>':''}</span>
+      ${custom?`<button class="stp" style="color:var(--red);border-color:var(--red)" onclick="delCustom('${key}',${row})">✕</button>`:''}
+      <button class="stp minus" onclick="step(this,-10)">−10</button>
+      <input type="number" min="0" step="1" inputmode="numeric" value="${v}" placeholder="0"
+        data-key="${key}" data-row="${row}"
+        onfocus="this.select()" onclick="this.select()"
+        oninput="onInput(this)" onkeyup="onInput(this)"
+        onkeydown="if(event.key==='Enter'){event.preventDefault();nextInput(this);}"/>
+      <button class="stp" onclick="step(this,10)">+10</button>
+    </div>`;
+  }).join('');
+}
+
+// ── إضافة/حذف أصناف مخصّصة (kanz و goods) ──
+function addCustom(key){
+  const name=prompt('اسم الصنف الجديد:');
+  if(!name||!name.trim())return;
+  const row=nextFreeRow(key);
+  customItems[key].push({name:name.trim(),row});
+  LS.set('stk_custom',customItems);
+  render(key);
+  toast('✓ أُضيف — سيُكتب بالإكسيل عند الطباعة','ok');
+}
+function delCustom(key,row){
+  if(!confirm('حذف هذا الصنف؟'))return;
+  customItems[key]=(customItems[key]||[]).filter(c=>c.row!==row);
+  LS.set('stk_custom',customItems);
+  delete data[key][row];
+  LS.set('stk_data',data);
+  // نظّف من الترتيب المحفوظ
+  if(order[key])order[key]=order[key].filter(r=>r!==row);
+  LS.set('stk_order',order);
+  render(key);
+  toast('✓ حُذف','ok');
+}
+
+function onInput(el){
+  const k=el.dataset.key, r=el.dataset.row, v=parseInt(el.value)||0;
+  snapshot(k,r);
+  if(v>0){data[k][r]=v;el.classList.add('has');}
+  else{delete data[k][r];el.classList.remove('has');}
+  LS.set('stk_data',data);
+  ind('dirty');
+}
+function step(btn,d){
+  const row=btn.closest('.row');
+  const el=row.querySelector('input');
+  const v=(parseInt(el.value)||0)+d;
+  el.value=v>0?v:'';
+  onInput(el);
+}
+function nextInput(el){
+  const all=[...el.closest('.list').querySelectorAll('input')];
+  const i=all.indexOf(el);
+  if(all[i+1]){all[i+1].focus();all[i+1].select();}
+  else el.blur();
+}
+function clearSheet(key){
+  if(!Object.keys(data[key]).length){toast('Already empty');return;}
+  if(!confirm('Clear all quantities?'))return;
+  snapshotAll(key);
+  data[key]={};
+  LS.set('stk_data',data);
+  render(key);
+  toast('✓ Cleared','ok');
+}
+
+// ══ ACCOUNT ══
+async function showAccount(){
+  try{
+    await initMsal();
+    const acc=msalApp.getAllAccounts();
+    const el=document.getElementById('acctInfo');
+    if(el) el.textContent = acc.length ? (acc[0].username||acc[0].name||'Signed in') : 'Not signed in';
+  }catch(e){}
+}
+async function switchAccount(){
+  try{
+    await initMsal();
+    // امسح كل الحسابات والـ cache
+    localStorage.removeItem('stk_file_id');
+    localStorage.removeItem('stk_xlsx_path');
+    _fileId=null;
+    const acc=msalApp.getAllAccounts();
+    for(const a of acc){ try{ await msalApp.logoutPopup({account:a}); }catch(e){} }
+    // سجّل دخول جديد مع اختيار الحساب
+    const r=await msalApp.loginPopup({scopes:['Files.ReadWrite'],prompt:'select_account'});
+    toast('✓ Signed in: '+(r.account?.username||''),'ok');
+    showAccount();
+  }catch(e){
+    toast('✗ '+e.message,'err');
+  }
+}
+
+// ══ SETTINGS: REORDER ══
+function setTab(key,el){
+  _setTab=key;
+  document.querySelectorAll('.stab').forEach(x=>x.classList.remove('on'));
+  if(el)el.classList.add('on');
+  renderSettings();
+}
+function renderSettings(){
+  const rows=getRows(_setTab);
+  document.getElementById('list-settings').innerHTML=rows.map((r,i)=>`
+    <div class="srow" draggable="true" data-i="${i}"
+      ondragstart="dgStart(event,${i})" ondragover="dgOver(event,${i})"
+      ondrop="dgDrop(event,${i})" ondragend="dgEnd(event)"
+      ontouchstart="tStart(event,${i})" ontouchmove="tMove(event)" ontouchend="tEnd(event)">
+      <span class="h">⠿</span>
+      <span class="idx">${i+1}</span>
+      <span class="n">${r.name}</span>
+      <button class="mv" onclick="move(${i},-1)">▲</button>
+      <button class="mv" onclick="move(${i},1)">▼</button>
+    </div>`).join('');
+}
+function move(i,d){
+  const rows=getRows(_setTab);
+  const j=i+d;
+  if(j<0||j>=rows.length)return;
+  [rows[i],rows[j]]=[rows[j],rows[i]];
+  saveOrder(_setTab,rows);
+  renderSettings();
+  render(_setTab);
+}
+function reorderTo(from,to){
+  if(from===to)return;
+  const rows=getRows(_setTab);
+  const [m]=rows.splice(from,1);
+  rows.splice(to,0,m);
+  saveOrder(_setTab,rows);
+  renderSettings();
+  render(_setTab);
+}
+function resetOrder(){
+  if(!confirm('Reset to default order?'))return;
+  delete order[_setTab];
+  LS.set('stk_order',order);
+  renderSettings();
+  render(_setTab);
+  toast('✓ Order reset','ok');
+}
+
+// Drag (desktop)
+let _dgFrom=null;
+function dgStart(e,i){_dgFrom=i;e.currentTarget.classList.add('drag');}
+function dgOver(e,i){
+  e.preventDefault();
+  document.querySelectorAll('.srow').forEach(x=>x.classList.remove('over'));
+  if(_dgFrom!==null&&_dgFrom!==i)e.currentTarget.classList.add('over');
+}
+function dgDrop(e,i){
+  e.preventDefault();
+  document.querySelectorAll('.srow').forEach(x=>x.classList.remove('over'));
+  if(_dgFrom!==null)reorderTo(_dgFrom,i);
+  _dgFrom=null;
+}
+function dgEnd(e){
+  document.querySelectorAll('.srow').forEach(x=>x.classList.remove('drag','over'));
+  _dgFrom=null;
+}
+
+// Touch drag (mobile) - بس من المقبض ⠿
+let _tFrom=null,_tOver=null;
+function tStart(e,i){
+  if(!e.target.classList.contains('h'))return;
+  _tFrom=i; _tOver=i;
+  e.currentTarget.classList.add('drag');
+}
+function tMove(e){
+  if(_tFrom===null)return;
+  e.preventDefault();
+  const t=e.touches[0];
+  const el=document.elementFromPoint(t.clientX,t.clientY)?.closest('.srow');
+  document.querySelectorAll('.srow').forEach(x=>x.classList.remove('over'));
+  if(el){
+    _tOver=parseInt(el.dataset.i);
+    if(_tOver!==_tFrom)el.classList.add('over');
+  }
+}
+function tEnd(e){
+  if(_tFrom===null)return;
+  document.querySelectorAll('.srow').forEach(x=>x.classList.remove('drag','over'));
+  if(_tOver!==null&&_tOver!==_tFrom)reorderTo(_tFrom,_tOver);
+  _tFrom=null;_tOver=null;
+}
+
+// ══ ONEDRIVE ══
+async function initMsal(){
+  if(msalApp)return;
+  if(typeof msal==='undefined'){
+    for(let i=0;i<20 && typeof msal==='undefined';i++) await new Promise(r=>setTimeout(r,300));
+    if(typeof msal==='undefined') throw new Error('Login library failed to load - check internet');
+  }
+  msalApp=new msal.PublicClientApplication({
+    auth:{clientId:CLIENT_ID,authority:'https://login.microsoftonline.com/consumers',
+      redirectUri:'https://derghamz88-blip.github.io/Stickers-/stickers.html'},
+    cache:{cacheLocation:'localStorage'}
+  });
+  await msalApp.initialize();
+}
+async function getToken(){
+  await initMsal();
+  const scopes=['Files.ReadWrite'];
+  try{
+    const acc=msalApp.getAllAccounts();
+    if(acc.length){const r=await msalApp.acquireTokenSilent({scopes,account:acc[0]});return r.accessToken;}
+  }catch(e){}
+  const r=await msalApp.loginPopup({scopes});
+  return r.accessToken;
+}
+
+// إيجاد ملف الإكسيل - يبحث لحاله لو المسار تغير
+async function findFile(token){
+  const H={'Authorization':'Bearer '+token};
+  // 1) جرّب الـ id المحفوظ
+  if(_fileId){
+    const r=await fetch(`https://graph.microsoft.com/v1.0/me/drive/items/${_fileId}`,{headers:H});
+    if(r.ok) return _fileId;
+    _fileId=null;
+  }
+  // 2) جرّب المسار المعروف
+  const paths=[XLSX_PATH,'print stickers.xlsx','print_stickers.xlsx','Desktop/new print/print stickers.xlsx','Desktop/new print/print_stickers.xlsx'];
+  for(const p of paths){
+    try{
+      const r=await fetch(`https://graph.microsoft.com/v1.0/me/drive/root:/${p.split('/').map(encodeURIComponent).join('/')}`,{headers:H});
+      if(r.ok){
+        const j=await r.json();
+        _fileId=j.id; XLSX_PATH=p;
+        LS_rawSet('stk_file_id',j.id); LS_rawSet('stk_xlsx_path',p);
+        return j.id;
+      }
+    }catch(e){}
+  }
+  // 3) ابحث بكل الـ OneDrive
+  try{
+    const r=await fetch(`https://graph.microsoft.com/v1.0/me/drive/root/search(q='print stickers')?$top=25`,{headers:H});
+    if(r.ok){
+      const j=await r.json();
+      const hit=(j.value||[]).find(x=>x.name&&/^print[ _]stickers/i.test(x.name)&&x.name.toLowerCase().endsWith('.xlsx'));
+      if(hit){
+        _fileId=hit.id;
+        LS_rawSet('stk_file_id',hit.id);
+        console.log('✓ Found file via search:',hit.parentReference?.path,'/',hit.name);
+        return hit.id;
+      }
+    }
+  }catch(e){}
+  throw new Error('print stickers.xlsx not found in OneDrive');
+}
+
+// ── Graph helpers: خطأ كامل + إعادة محاولة + جلسة ──
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function fmtErr(status,txt){
+  let code='',msg='',inner='';
+  try{
+    const e=JSON.parse(txt).error||{};
+    code=e.code||''; msg=e.message||'';
+    let i=e.innerError||e.innererror;
+    while(i){ if(i.code)inner=i.code; i=i.innerError||i.innererror; }
+  }catch{ msg=(txt||'').slice(0,160); }
+  return `[${status}] ${code}${inner?' / '+inner:''}${msg?' — '+msg:''}`;
+}
+async function gfetch(url,opt,tries=4){
+  let last;
+  for(let i=0;i<tries;i++){
+    try{
+      const r=await fetch(url,opt);
+      if(r.ok) return r;
+      last=new Error(fmtErr(r.status,await r.text()));
+      last.status=r.status;
+      if(![409,423,429,500,502,503,504].includes(r.status)) throw Object.assign(last,{final:true});
+    }catch(e){ if(e.final) throw e; last=e; }
+    if(i<tries-1){ toast('⏳ إعادة المحاولة '+(i+1)+'/'+(tries-1)+'...'); await sleep(2000*(i+1)); }
+  }
+  throw last;
+}
+async function openSession(wb,token){
+  try{
+    const r=await fetch(wb+'/createSession',{method:'POST',
+      headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},
+      body:JSON.stringify({persistChanges:true})});
+    if(r.ok) return (await r.json()).id||null;
+  }catch(e){}
+  return null;
+}
+// تشخيص: ليش فشلت الكتابة؟
+async function diagnose(wb,token,sheetName,orig){
+  try{
+    const r=await fetch(wb+'/worksheets?$select=name',{headers:{'Authorization':'Bearer '+token}});
+    if(!r.ok) return 'الملف ما عم يفتح بـ Excel Online (مقفول/مفتوح عاللابتوب أو فيه مشكلة) '+fmtErr(r.status,await r.text());
+    const names=((await r.json()).value||[]).map(x=>x.name);
+    if(!names.some(n=>n.toLowerCase()===sheetName.toLowerCase()))
+      return 'الشيت "'+sheetName+'" مش موجود. الموجود: '+names.join(' | ');
+    return 'الملف والشيت موجودين بس الكتابة انرفضت (غالباً الملف مقفول أو الشيت محمي) '+orig;
+  }catch(e){ return orig; }
+}
+
+// كتابة الكميات (عمود B) + أسماء الأصناف المخصّصة (عمود C)
+async function writeSheet(key,token){
+  const cfg=SHEETS[key];
+  const fid=await findFile(token);
+  const wb=`https://graph.microsoft.com/v1.0/me/drive/items/${fid}/workbook`;
+  const base=`${wb}/worksheets/${encodeURIComponent(cfg.name)}`;
+  const sid=await openSession(wb,token);
+  const HW={'Authorization':'Bearer '+token,'Content-Type':'application/json'};
+  if(sid) HW['workbook-session-id']=sid;
+
+  const all=itemsOf(key);                       // الأصلية + المخصّصة
+  const rows=all.map(x=>x.row);
+  const startRow=Math.min(...rows), endRow=Math.max(...rows);
+  const col=cfg.col||'B';
+
+  // 1) الكميات - صفر صريح للفاضي (يمسح القديم)
+  const qty=[];
+  for(let r=startRow;r<=endRow;r++){
+    qty.push([parseInt(data[key][r])||0]);
+  }
+  try{
+    await gfetch(`${base}/range(address='${col}${startRow}:${col}${endRow}')`,{
+      method:'PATCH',headers:HW,body:JSON.stringify({values:qty})
+    });
+  }catch(e){
+    throw new Error(await diagnose(wb,token,cfg.name,e.message));
+  }
+
+  // 2) أسماء الأصناف المخصّصة بعمود C (فقط للأقسام اللي تدعم الإضافة)
+  const customs=(customItems[key]||[]);
+  if(customs.length){
+    for(const c of customs){
+      await gfetch(`${base}/range(address='C${c.row}')`,{
+        method:'PATCH',headers:HW,body:JSON.stringify({values:[[c.name]]})
+      });
+    }
+  }
+  if(sid){ try{ await fetch(wb+'/closeSession',{method:'POST',headers:HW}); }catch(e){} }
+}
+
+async function sendSignal(jobs,token,saveTs){
+  const r=await fetch(`https://graph.microsoft.com/v1.0/me/drive/root:/${SIGNAL_PATH}:/content`,{
+    method:'PUT',
+    headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},
+    body:JSON.stringify({jobs,ts:Date.now(),save_ts:saveTs||0})
+  });
+  if(!r.ok) throw new Error('Signal failed');
+}
+
+// ══ ACTIONS ══
+async function saveNow(showMsg){
+  ind('saving');
+  try{
+    const token=await getToken();
+    const cur=document.querySelector('.page.on').id.replace('pg-','');
+    if(!SHEETS[cur]){ind();if(showMsg)toast('افتح تاب المنتجات أول (مش Settings)');return;}
+    await writeSheet(cur,token);
+    ind('saved');
+    if(showMsg)toast('✓ Saved to Excel','ok');
+  }catch(e){
+    ind('err');
+    if(showMsg)toast('✗ '+e.message,'err');
+  }
+}
+
+async function printJob(key,day){
+  const cfg=SHEETS[key];
+  const count=Object.keys(data[key]).length;
+  if(!count){toast('No quantities entered','err');return;}
+
+  const btns=document.querySelectorAll('#pg-'+key+' .bar button');
+  btns.forEach(b=>b.disabled=true);
+  ind('saving');
+  try{
+    const token=await getToken();
+    // 1. سجل الوقت قبل الحفظ
+    const saveTs=Date.now();
+    // 2. اكتب الكميات بالإكسيل
+    await writeSheet(key,token);
+    ind('saved');
+    // 3. أرسل الإشارة
+    await sendSignal([{action:'print_sticker',sheet:key,day:day||'',_id:Date.now()+Math.random()}],token,saveTs);
+    const lbl=key==='kanz'?'KANZ':(day==='next'?'Next Day':'Today');
+    toast(`✓ ${count} products → printing ${lbl}...`,'ok');
+  }catch(e){
+    ind('err');
+    toast('✗ '+e.message,'err');
+  }finally{
+    btns.forEach(b=>b.disabled=false);
+  }
+}
+
+async function killExcel(){
+  try{
+    const token=await getToken();
+    await sendSignal([{action:'kill_excel',_id:Date.now()+Math.random()}],token,0);
+    toast('✓ Closing Excel...','ok');
+  }catch(e){toast('✗ '+e.message,'err');}
+}
+
+// ══ INIT ══
+render('fresh'); render('goods'); render('kanz'); render('tender'); renderSettings();
+setTimeout(showAccount,1200);
+updUndo();
+document.querySelectorAll('input').forEach(i=>{if(i.value)i.classList.add('has');});
+</script>
+</body>
+</html>
