@@ -1,0 +1,1244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script>window.XL_CFG={app:'stickers',signal:'sticker_signal.json',testFile:'print stickers.xlsx',bottom:96};
+/* ══ IAT Excel bridge ══════════════════════════════════════════════
+   Two ways to write to the Excel files on OneDrive:
+     🖥 LAPTOP  (default): every Excel write is sent as a small job file to OneDrive
+                (folder IAT_excel_jobs); the print script on the laptop writes it into
+                Excel itself and saves. Works even when Microsoft blocks the Excel API.
+     ☁ DIRECT  : the old way - the phone writes into Excel through Microsoft (Excel API).
+   Tap the small pill (bottom-left) to switch, see the last result, or test the old way.
+   Needs window.XL_CFG = {app:'orders'|'stickers', signal:'print_signal.json', label:'...'}
+   ═════════════════════════════════════════════════════════════════ */
+(function(){
+  const CFG = window.XL_CFG || {app:'app', signal:'print_signal.json'};
+  const DIR = 'IAT_excel_jobs';
+  const G = 'https://graph.microsoft.com/v1.0';
+  const raw = window.fetch.bind(window);
+  window.__rawFetch = raw;
+  const KEY = 'xl_mode_' + CFG.app;
+  const mode = () => { try { return localStorage.getItem(KEY) || 'laptop'; } catch (e) { return 'laptop'; } };
+  window.xlMode = mode;
+
+  let pending = [], timer = null, flushing = Promise.resolve(), lastAuth = '';
+  let unacked = [];                       // [{id, at}]
+  let state = {last: '', ok: null, at: 0};
+
+  // ── helpers ──
+  const J = (o, s) => new Response(JSON.stringify(o), {status: s || 200, headers: {'Content-Type': 'application/json'}});
+  function hdr(init, name) {
+    const h = (init && init.headers) || {};
+    if (h instanceof Headers) return h.get(name) || '';
+    for (const k in h) if (k.toLowerCase() === name.toLowerCase()) return h[k];
+    return '';
+  }
+  async function bodyText(b) {
+    if (b == null) return '';
+    if (typeof b === 'string') return b;
+    if (b instanceof Blob) return await b.text();
+    try { return await new Response(b).text(); } catch (e) { return ''; }
+  }
+  function wbParse(url) {
+    let u; try { u = new URL(url); } catch (e) { return null; }
+    if (u.host !== 'graph.microsoft.com') return null;
+    let p; try { p = decodeURIComponent(u.pathname); } catch (e) { p = u.pathname; }
+    const m = p.match(/\/drive\/items\/([^/]+)\/workbook(\/.*)?$/);
+    if (!m) return null;
+    const rest = m[2] || '';
+    const r = rest.match(/^\/worksheets\/(.+?)\/range\(address='([^']+)'\)(\/clear)?$/i);
+    return {item: m[1], rest, sheet: r ? r[1] : null, addr: r ? r[2] : null, clear: !!(r && r[3])};
+  }
+  function rid() { return CFG.app + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7); }
+
+  // ── job files ──
+  async function put(path, obj) {
+    const url = `${G}/me/drive/root:/${path.split('/').map(encodeURIComponent).join('/')}:/content`;
+    const go = () => raw(url, {method: 'PUT', headers: {'Authorization': lastAuth, 'Content-Type': 'application/json'}, body: JSON.stringify(obj)});
+    let r = await go();
+    if (r.status === 404 || r.status === 409) {           // folder missing: make it, try again
+      await raw(`${G}/me/drive/root/children`, {method: 'POST', headers: {'Authorization': lastAuth, 'Content-Type': 'application/json'},
+        body: JSON.stringify({name: DIR, folder: {}, '@microsoft.graph.conflictBehavior': 'fail'})}).catch(() => {});
+      r = await go();
+    }
+    if (!r.ok) throw new Error('could not send to OneDrive [' + r.status + '] ' + (await r.text()).slice(0, 120));
+  }
+  function flushNow() {
+    clearTimeout(timer); timer = null;
+    if (!pending.length) return flushing;
+    const ops = pending; pending = [];
+    const id = rid();
+    flushing = flushing.then(async () => {
+      try {
+        await put(`${DIR}/${id}.json`, {id, app: CFG.app, ts: Date.now(), ops});
+        unacked.push({id, at: Date.now()});
+        pill('⏳ sent to laptop (' + ops.length + ')', 'wait');
+        watchAck();
+      } catch (e) {
+        pending = ops.concat(pending);                       // keep them, try again with the next write
+        pill('✗ not sent', 'bad');
+        state = {last: 'Could not send to OneDrive: ' + e.message, ok: false, at: Date.now()};
+        throw e;
+      }
+    });
+    return flushing;
+  }
+  function queue(op) {
+    pending.push(op);
+    clearTimeout(timer);
+    timer = setTimeout(() => flushNow().catch(() => {}), 700);
+  }
+
+  // ── answer from the laptop ──
+  let ackTimer = null;
+  function watchAck() {
+    if (ackTimer) return;
+    const t0 = Date.now();
+    ackTimer = setInterval(async () => {
+      if (!unacked.length) { clearInterval(ackTimer); ackTimer = null; return; }
+      try {
+        const r = await raw(`${G}/me/drive/root:/${DIR}/ack_${CFG.app}.json:/content?t=${Date.now()}`, {headers: {'Authorization': lastAuth}});
+        if (r.ok) {
+          const a = await r.json();
+          const done = {}; (a.done || []).forEach(d => done[d.id] = d);
+          const left = [];
+          for (const u of unacked) {
+            const d = done[u.id];
+            if (!d) { left.push(u); continue; }
+            state = {last: d.ok ? `Laptop wrote ${d.n || ''} change(s) into Excel at ${d.at || ''}` : 'Laptop could NOT write: ' + (d.err || '?'), ok: !!d.ok, at: Date.now()};
+            pill(d.ok ? '✓ written by laptop' : '✗ laptop error', d.ok ? 'ok' : 'bad');
+            if (!d.ok) alert('Laptop could not write into Excel:\n' + (d.err || '?'));
+          }
+          unacked = left;
+        }
+      } catch (e) {}
+      if (unacked.length && Date.now() - t0 > 180000) {
+        state = {last: 'No answer from the laptop for 3 min - is the print script running and OneDrive syncing on the laptop?', ok: false, at: Date.now()};
+        pill('⚠ laptop not answering', 'bad');
+        unacked = []; clearInterval(ackTimer); ackTimer = null;
+      }
+    }, 5000);
+  }
+
+  // ── reads in laptop mode come from the copy the laptop publishes ──
+  let snap = null, snapAt = 0;
+  async function snapshot() {
+    if (snap && Date.now() - snapAt < 60000) return snap;
+    const r = await raw(`${G}/me/drive/root:/${DIR}/snapshot_${CFG.app}.json:/content?t=${Date.now()}`, {headers: {'Authorization': lastAuth}});
+    if (!r.ok) return null;
+    snap = await r.json(); snapAt = Date.now();
+    return snap;
+  }
+  const norm = s => String(s || '').toLowerCase().replace(/\$/g, '').trim();
+
+  // ── the fetch hook ──
+  window.fetch = async function (input, init) {
+    const url = typeof input === 'string' ? input : (input && input.url) || '';
+    const method = ((init && init.method) || (input && input.method) || 'GET').toUpperCase();
+    const auth = hdr(init, 'Authorization'); if (auth) lastAuth = auth;
+    if (mode() !== 'laptop' || url.indexOf('graph.microsoft.com') < 0) return raw(input, init);
+
+    // print signal: make sure the Excel changes go first, and never wait for a phone save
+    if (method === 'PUT' && url.indexOf(':/' + CFG.signal + ':/content') > 0) {
+      try {
+        const txt = await bodyText(init && init.body);
+        const d = JSON.parse(txt);
+        if (d && Array.isArray(d.jobs)) {
+          try { await flushNow(); } catch (e) { return J({error: {code: 'LaptopModeSendFailed', message: e.message}}, 503); }
+          d.save_ts = 0;
+          d.needs = unacked.filter(u => Date.now() - u.at < 900000).map(u => u.id);
+          init = Object.assign({}, init, {body: JSON.stringify(d)});
+        }
+      } catch (e) {}
+      return raw(input, init);
+    }
+
+    const w = wbParse(url);
+    if (!w) return raw(input, init);
+    if (/^\/(createSession|refreshSession)$/i.test(w.rest)) return J({id: 'laptop-mode', persistChanges: true}, 201);
+    if (/^\/closeSession$/i.test(w.rest)) return new Response(null, {status: 204});
+
+    if (w.sheet && w.addr) {
+      if (method === 'PATCH') {
+        let b = {}; try { b = JSON.parse(await bodyText(init && init.body)); } catch (e) {}
+        const op = {t: 'set', sheet: w.sheet, addr: w.addr};
+        if (b.values !== undefined) op.values = b.values;
+        if (b.formulas !== undefined) op.formulas = b.formulas;
+        if (op.values === undefined && op.formulas === undefined) return J({address: w.addr});
+        queue(op);
+        return J({address: w.sheet + '!' + w.addr, values: b.values || b.formulas});
+      }
+      if (method === 'POST' && w.clear) {
+        let b = {}; try { b = JSON.parse(await bodyText(init && init.body)); } catch (e) {}
+        queue({t: 'clear', sheet: w.sheet, addr: w.addr, applyTo: b.applyTo || 'Contents'});
+        return new Response(null, {status: 204});
+      }
+      if (method === 'GET') {
+        const s = await snapshot().catch(() => null);
+        const k = Object.keys((s && s.ranges) || {}).find(x => norm(x) === norm(w.sheet + '!' + w.addr));
+        if (k) return J({address: k, values: s.ranges[k]});
+        return J({error: {code: 'LaptopMode', message: `Laptop mode: "${w.sheet}!${w.addr}" is not in the copy the laptop shares. Switch to ☁ Direct to read it, or ask for it to be added.`}}, 404);
+      }
+    }
+    if (method === 'GET' && /^\/worksheets(\?.*)?$/i.test(w.rest + (new URL(url).search || ''))) {
+      const s = await snapshot().catch(() => null);
+      return J({value: ((s && s.sheets) || []).map(n => ({name: n}))});
+    }
+    return J({error: {code: 'LaptopMode', message: 'This Excel action is not available in 🖥 Laptop mode: ' + method + ' ' + w.rest}}, 501);
+  };
+
+  // ── the small pill + menu ──
+  let pillEl = null, pillT = null;
+  function pill(text, kind) {
+    if (!pillEl) return;
+    pillEl.querySelector('b').textContent = text || (mode() === 'laptop' ? '🖥 Laptop' : '☁ Direct');
+    pillEl.style.borderColor = {ok: '#14b8a6', bad: '#ef4444', wait: '#fbbf24'}[kind] || '#475569';
+    clearTimeout(pillT);
+    if (text) pillT = setTimeout(() => pill(), kind === 'bad' ? 20000 : 6000);
+  }
+  async function testDirect() {
+    if (!lastAuth) return 'Do one save first (so the app is signed in), then test again.';
+    try {
+      const f = await raw(`${G}/me/drive/root:/${encodeURI(CFG.testFile)}`, {headers: {'Authorization': lastAuth}});
+      if (!f.ok) return 'File not found: ' + CFG.testFile + ' [' + f.status + ']';
+      const id = (await f.json()).id;
+      const r = await raw(`${G}/me/drive/items/${id}/workbook/worksheets?$select=name`, {headers: {'Authorization': lastAuth}});
+      if (r.ok) return '✓ The old ☁ Direct way WORKS again - you can switch back if you want.';
+      return '✗ The old ☁ Direct way still does NOT work: [' + r.status + '] ' + (await r.text()).slice(0, 160) + '\n\nStay on 🖥 Laptop.';
+    } catch (e) { return 'Test failed: ' + e.message; }
+  }
+  function menu() {
+    const m = mode();
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:100000;display:flex;align-items:flex-end;justify-content:center';
+    ov.innerHTML = `<div style="background:#111827;color:#e8edf5;border:1px solid #2a3548;border-radius:14px 14px 0 0;width:100%;max-width:520px;padding:16px;font:14px system-ui;direction:rtl;text-align:right">
+      <div style="font-weight:700;margin-bottom:10px">طريقة الكتابة عالإكسل</div>
+      <label style="display:block;padding:10px;border:1px solid ${m === 'laptop' ? '#14b8a6' : '#374357'};border-radius:10px;margin-bottom:8px"><input type="radio" name="xlm" value="laptop" ${m === 'laptop' ? 'checked' : ''}> 🖥 <b>عن طريق اللابتوب</b><br><small style="color:#7c8ba1">الموبايل بيبعت التغييرات، وبرنامج الطباعة عاللابتوب بيكتبها بالإكسل.</small></label>
+      <label style="display:block;padding:10px;border:1px solid ${m === 'direct' ? '#14b8a6' : '#374357'};border-radius:10px;margin-bottom:10px"><input type="radio" name="xlm" value="direct" ${m === 'direct' ? 'checked' : ''}> ☁ <b>مباشرة (الطريقة القديمة)</b><br><small style="color:#7c8ba1">الموبايل بيكتب بالإكسل عن طريق Microsoft.</small></label>
+      <div id="xlst" style="font-size:12px;color:#7c8ba1;background:#1a2234;border-radius:8px;padding:8px;margin-bottom:10px;direction:ltr;text-align:left;white-space:pre-wrap">${(state.last || 'No result yet.').replace(/</g, '&lt;')}${pending.length ? '\nWaiting to send: ' + pending.length : ''}${unacked.length ? '\nWaiting for the laptop: ' + unacked.length : ''}</div>
+      <div style="display:flex;gap:8px"><button id="xlt" style="flex:1;padding:10px;border-radius:8px;border:1px solid #374357;background:#232d42;color:#e8edf5">🔍 جرّب الطريقة القديمة</button>
+      <button id="xlc" style="flex:1;padding:10px;border-radius:8px;border:0;background:#14b8a6;color:#04201c;font-weight:700">تم</button></div></div>`;
+    document.body.appendChild(ov);
+    ov.querySelectorAll('input[name=xlm]').forEach(i => i.onchange = () => { try { localStorage.setItem(KEY, i.value); } catch (e) {} pill(); ov.remove(); menu(); });
+    ov.querySelector('#xlc').onclick = () => ov.remove();
+    ov.onclick = e => { if (e.target === ov) ov.remove(); };
+    ov.querySelector('#xlt').onclick = async () => { const st = ov.querySelector('#xlst'); st.textContent = '...'; st.textContent = await testDirect(); };
+  }
+  function addPill() {
+    pillEl = document.createElement('div');
+    pillEl.style.cssText = 'position:fixed;left:6px;bottom:' + (CFG.bottom || 86) + 'px;z-index:99999;background:#0f172acc;color:#e8edf5;border:1.5px solid #475569;border-radius:20px;padding:4px 10px;font:600 11px system-ui;cursor:pointer;backdrop-filter:blur(4px)';
+    pillEl.innerHTML = '<b></b>';
+    pillEl.onclick = menu;
+    document.body.appendChild(pillEl);
+    pill();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', addPill); else addPill();
+  window.addEventListener('beforeunload', () => { if (pending.length) flushNow(); });
+})();
+
+</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>IAT Stickers</title>
+<script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"
+  onerror="this.onerror=null;var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js';document.head.appendChild(s);"></script>
+<style>
+:root{
+  --bg:#0a0e1a; --s1:#111827; --s2:#1a2234; --s3:#232d42;
+  --b1:#2a3548; --b2:#374357; --faint:rgba(255,255,255,.05);
+  --txt:#e8edf5; --muted:#7c8ba1;
+  --teal:#14b8a6; --amber:#fbbf24; --blue:#3b82f6; --red:#ef4444; --purple:#a855f7;
+  --mono:ui-monospace,'SF Mono',Menlo,monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{height:100%}
+body{background:var(--bg);color:var(--txt);font-family:system-ui,-apple-system,'Segoe UI',sans-serif;
+  height:100vh;height:100dvh;display:flex;flex-direction:column;overflow:hidden}
+nav{background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0}
+.navrow{display:flex;align-items:stretch;overflow-x:auto;scrollbar-width:none}
+.navrow::-webkit-scrollbar{display:none}
+.ntab{display:flex;align-items:center;justify-content:center;gap:5px;padding:0 14px;min-height:44px;
+  font-size:.8rem;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;flex-shrink:0;
+  border-bottom:2.5px solid transparent;transition:all .15s}
+.ntab.on{color:var(--txt);border-bottom-color:var(--teal);background:var(--s2)}
+.nsep{display:flex;align-items:center;padding:0 6px 0 10px;font-size:.6rem;font-family:var(--mono);color:var(--purple);font-weight:800;flex-shrink:0;border-left:1px solid var(--b1)}
+.ntab.big.on{border-bottom-color:var(--purple)}
+.flt{width:100%;padding:8px 10px;border:1px solid var(--b2);border-radius:8px;background:var(--s3);color:var(--txt);font-size:.8rem;outline:none}
+.page{display:none;flex:1;flex-direction:column;overflow:hidden;min-height:0}
+.page.on{display:flex}
+.list{flex:1;overflow-y:auto;padding:8px;min-height:0;-webkit-overflow-scrolling:touch}
+.row{display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--faint)}
+.row:nth-child(odd){background:var(--s1)}
+.row .name{flex:1;font-size:.82rem}
+.row input{width:58px;padding:9px 4px;border:1.5px solid var(--b2);border-radius:7px;
+  font-size:.9rem;font-family:var(--mono);text-align:center;background:var(--s3);
+  color:var(--muted);font-weight:700;outline:none;transition:all .15s}
+.row input.has{border-color:var(--teal);color:var(--teal);background:rgba(20,184,166,.12)}
+.stp{width:42px;height:38px;border-radius:8px;border:1.5px solid var(--b2);background:var(--s3);
+  color:var(--muted);font-size:.72rem;font-weight:800;cursor:pointer;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-family:var(--mono);transition:all .1s}
+.stp:active{background:var(--teal);color:#000;border-color:var(--teal);transform:scale(.94)}
+.stp.minus:active{background:var(--red);border-color:var(--red);color:#fff}
+.btn{border:none;border-radius:9px;font-weight:700;cursor:pointer;transition:all .15s;
+  display:flex;align-items:center;justify-content:center;gap:5px;color:#fff}
+.btn:active{transform:scale(.97)}
+.btn:disabled{opacity:.35;pointer-events:none}
+.bar{background:var(--s1);border-top:1px solid var(--b1);padding:8px;display:flex;gap:8px;
+  flex-shrink:0;position:sticky;bottom:0;z-index:10;padding-bottom:calc(8px + env(safe-area-inset-bottom))}
+.b-teal{background:var(--teal)} .b-amber{background:var(--amber);color:#000}
+.b-red{background:rgba(239,68,68,.2);color:var(--red);border:1.5px solid var(--red)}
+.b-ghost{background:var(--s3);color:var(--muted);border:1px solid var(--b2)}
+.head{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;
+  background:var(--s2);border-bottom:1px solid var(--b1);flex-shrink:0}
+.head .t{font-size:.68rem;font-family:var(--mono);color:var(--muted);letter-spacing:.1em;text-transform:uppercase}
+#toast{position:fixed;top:56px;left:50%;transform:translateX(-50%) translateY(-120px);
+  background:var(--s3);border:1px solid var(--b2);padding:10px 16px;border-radius:11px;
+  font-size:.78rem;font-weight:600;z-index:999;transition:transform .25s;max-width:92vw;text-align:center;word-break:break-word;cursor:pointer;
+  box-shadow:0 6px 20px rgba(0,0,0,.5)}
+#toast.on{transform:translateX(-50%) translateY(0)}
+#toast.ok{border-color:var(--teal);color:var(--teal)}
+#toast.err{border-color:var(--red);color:var(--red)}
+.stab{flex:1;text-align:center;padding:8px;border-radius:8px;font-size:.75rem;font-weight:700;
+  color:var(--muted);background:var(--s3);cursor:pointer;border:1px solid var(--b2);transition:all .15s}
+.stab.on{color:var(--teal);border-color:var(--teal);background:rgba(20,184,166,.12)}
+.srow{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--faint);
+  background:var(--s1);margin-bottom:3px;border-radius:7px;border:1px solid transparent}
+.srow.drag{opacity:.4;border-color:var(--teal)}
+.srow.over{border-color:var(--teal);background:var(--s3)}
+.srow .h{color:var(--muted);font-size:1rem;cursor:grab;touch-action:none;padding:0 2px}
+.srow .n{flex:1;font-size:.8rem}
+.srow .idx{font-family:var(--mono);font-size:.65rem;color:var(--muted);min-width:20px}
+.mv{background:var(--s3);border:1px solid var(--b2);border-radius:6px;width:30px;height:30px;
+  color:var(--muted);font-size:.8rem;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.mv:active{background:var(--teal);color:#000}
+.grp{font-size:.62rem;font-family:var(--mono);color:var(--muted);padding:10px 12px 5px;
+  letter-spacing:.08em;text-transform:uppercase;background:var(--bg)}
+.ck{padding:5px 8px;border-radius:6px;margin-bottom:4px;background:var(--s2);word-break:break-word;white-space:pre-wrap}
+.ck.ok{border-left:3px solid var(--teal)}.ck.bad{border-left:3px solid var(--red);background:rgba(239,68,68,.08)}
+.ck.warn{border-left:3px solid var(--amber)}.ck.info{border-left:3px solid var(--blue)}
+.ck .h{font-weight:700}.ck .hint{color:var(--amber);direction:rtl;text-align:right;display:block;margin-top:3px;font-family:system-ui}
+
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="navrow">
+    <span id="ind" onclick="saveNow(true)" title="Tap to save" style="font-size:.75rem;padding:0 8px;display:flex;align-items:center;cursor:pointer">🟢</span>
+    <div class="ntab on" data-p="fresh" onclick="show('fresh',this)">🐔 Whole Chicken</div>
+    <div class="ntab" data-p="goods" onclick="show('goods',this)">📦 Goods</div>
+    <div class="ntab" data-p="kanz" onclick="show('kanz',this)">🏷 KANZ</div>
+    <div class="ntab" data-p="tender" onclick="show('tender',this)">🍗 Tender</div>
+    <div class="nsep">BIG ▸</div>
+    <div class="ntab big" data-p="noon" onclick="show('noon',this)">🟡 Noon</div>
+    <div class="ntab big" data-p="parts" onclick="show('parts',this)">🍖 Zaki Parts</div>
+    <div class="ntab big" data-p="circle" onclick="show('circle',this)">⚪ Circle</div>
+    <div class="ntab big" data-p="ztender" onclick="show('ztender',this)">🥩 Zaki Tender</div>
+    <div class="ntab" onclick="show('settings',this)">⚙️ Settings</div>
+    <div class="ntab" onclick="show('check',this)">🔍 Check</div>
+  </div>
+</nav>
+
+<!-- FRESH WHOLE CHICKEN -->
+<div class="page on" id="pg-fresh">
+  <div class="head">
+    <div class="t">🐔 Fresh Whole Chicken</div>
+    <div style="display:flex;gap:6px">
+      <button class="btn b-ghost undoBtn" style="padding:5px 10px;font-size:.7rem" onclick="undo()" disabled>↶ Undo</button>
+      <button class="btn b-ghost" style="padding:5px 10px;font-size:.7rem" onclick="clearSheet('fresh')">🧹 Clear</button>
+    </div>
+  </div>
+  <div class="list" id="list-fresh"></div>
+  <div class="bar">
+    <button class="btn b-red" style="padding:11px 12px;font-size:.75rem" onclick="killExcel()">❌</button>
+    <button class="btn b-teal" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('fresh','today')">📅 Today</button>
+    <button class="btn b-amber" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('fresh','next')">📆 Next Day</button>
+  </div>
+</div>
+
+<!-- GOODS -->
+<div class="page" id="pg-goods">
+  <div class="head">
+    <div class="t">📦 Goods</div>
+    <div style="display:flex;gap:6px">
+      <button class="btn b-teal" style="padding:5px 10px;font-size:.7rem" onclick="addCustom('goods')">＋ صنف</button>
+      <button class="btn b-ghost undoBtn" style="padding:5px 10px;font-size:.7rem" onclick="undo()" disabled>↶ Undo</button>
+      <button class="btn b-ghost" style="padding:5px 10px;font-size:.7rem" onclick="clearSheet('goods')">🧹 Clear</button>
+    </div>
+  </div>
+  <div class="list" id="list-goods"></div>
+  <div class="bar">
+    <button class="btn b-red" style="padding:11px 12px;font-size:.75rem" onclick="killExcel()">❌</button>
+    <button class="btn b-teal" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('goods','today')">📅 Today</button>
+    <button class="btn b-amber" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('goods','next')">📆 Next Day</button>
+  </div>
+</div>
+
+<!-- KANZ -->
+<div class="page" id="pg-kanz">
+  <div class="head">
+    <div class="t">🏷 Kanz Almadam</div>
+    <div style="display:flex;gap:6px">
+      <button class="btn b-teal" style="padding:5px 10px;font-size:.7rem" onclick="addCustom('kanz')">＋ صنف</button>
+      <button class="btn b-ghost undoBtn" style="padding:5px 10px;font-size:.7rem" onclick="undo()" disabled>↶ Undo</button>
+      <button class="btn b-ghost" style="padding:5px 10px;font-size:.7rem" onclick="clearSheet('kanz')">🧹 Clear</button>
+    </div>
+  </div>
+  <div class="list" id="list-kanz"></div>
+  <div class="bar">
+    <button class="btn b-red" style="padding:11px 14px;font-size:.78rem" onclick="killExcel()">❌ Excel</button>
+    <button class="btn b-teal" style="flex:1;padding:11px;font-size:.85rem" onclick="printJob('kanz')">💾🖨 Save + Print</button>
+  </div>
+</div>
+
+<!-- TENDER -->
+<div class="page" id="pg-tender">
+  <div class="head">
+    <div class="t">🍗 Tender</div>
+    <div style="display:flex;gap:6px">
+      <button class="btn b-ghost undoBtn" style="padding:5px 10px;font-size:.7rem" onclick="undo()" disabled>↶ Undo</button>
+      <button class="btn b-ghost" style="padding:5px 10px;font-size:.7rem" onclick="clearSheet('tender')">🧹 Clear</button>
+    </div>
+  </div>
+  <div class="list" id="list-tender"></div>
+  <div class="bar">
+    <button class="btn b-red" style="padding:11px 12px;font-size:.75rem" onclick="killExcel()">❌</button>
+    <button class="btn b-teal" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('tender','today')">📅 Today</button>
+    <button class="btn b-amber" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('tender','next')">📆 Next Day</button>
+  </div>
+</div>
+
+<!-- BIG: noon -->
+<div class="page" id="pg-noon">
+  <div class="head">
+    <div class="t" style="color:var(--purple)">🟡 Noon (Al Balad) — BIG</div>
+    <div style="display:flex;gap:6px">
+      <button class="btn b-ghost undoBtn" style="padding:5px 10px;font-size:.7rem" onclick="undo()" disabled>↶ Undo</button>
+      <button class="btn b-ghost" style="padding:5px 10px;font-size:.7rem" onclick="clearSheet('noon')">🧹 Clear</button>
+    </div>
+  </div>
+  <div style="padding:6px 8px;background:var(--s2);border-bottom:1px solid var(--b1);flex-shrink:0"><input class="flt" placeholder="🔍 بحث..." oninput="filterList('noon',this.value)"></div>
+  <div class="list" id="list-noon"></div>
+  <div class="bar">
+    <button class="btn b-red" style="padding:11px 12px;font-size:.75rem" onclick="killExcelBig()">❌</button>
+    <button class="btn b-teal" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('noon','today')">📅 Today</button>
+    <button class="btn b-amber" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('noon','next')">📆 Next Day</button>
+  </div>
+</div>
+
+<!-- BIG: parts -->
+<div class="page" id="pg-parts">
+  <div class="head">
+    <div class="t" style="color:var(--purple)">🍖 Zaki Chicken Parts — BIG</div>
+    <div style="display:flex;gap:6px">
+      <button class="btn b-ghost undoBtn" style="padding:5px 10px;font-size:.7rem" onclick="undo()" disabled>↶ Undo</button>
+      <button class="btn b-ghost" style="padding:5px 10px;font-size:.7rem" onclick="clearSheet('parts')">🧹 Clear</button>
+    </div>
+  </div>
+  <div style="padding:6px 8px;background:var(--s2);border-bottom:1px solid var(--b1);flex-shrink:0"><input class="flt" placeholder="🔍 بحث..." oninput="filterList('parts',this.value)"></div>
+  <div class="list" id="list-parts"></div>
+  <div class="bar">
+    <button class="btn b-red" style="padding:11px 12px;font-size:.75rem" onclick="killExcelBig()">❌</button>
+    <button class="btn b-teal" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('parts','today')">📅 Today</button>
+    <button class="btn b-amber" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('parts','next')">📆 Next Day</button>
+  </div>
+</div>
+
+<!-- BIG: circle -->
+<div class="page" id="pg-circle">
+  <div class="head">
+    <div class="t" style="color:var(--purple)">⚪ Circle Stickers — BIG</div>
+    <div style="display:flex;gap:6px">
+      <button class="btn b-ghost undoBtn" style="padding:5px 10px;font-size:.7rem" onclick="undo()" disabled>↶ Undo</button>
+      <button class="btn b-ghost" style="padding:5px 10px;font-size:.7rem" onclick="clearSheet('circle')">🧹 Clear</button>
+    </div>
+  </div>
+  <div style="padding:6px 8px;background:var(--s2);border-bottom:1px solid var(--b1);flex-shrink:0"><input class="flt" placeholder="🔍 بحث..." oninput="filterList('circle',this.value)"></div>
+  <div class="list" id="list-circle"></div>
+  <div class="bar">
+    <button class="btn b-red" style="padding:11px 12px;font-size:.75rem" onclick="killExcelBig()">❌</button>
+    <button class="btn b-teal" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('circle','today')">📅 Today</button>
+    <button class="btn b-amber" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('circle','next')">📆 Next Day</button>
+  </div>
+</div>
+
+<!-- BIG: ztender -->
+<div class="page" id="pg-ztender">
+  <div class="head">
+    <div class="t" style="color:var(--purple)">🥩 Zaki Tender — BIG</div>
+    <div style="display:flex;gap:6px">
+      <button class="btn b-ghost undoBtn" style="padding:5px 10px;font-size:.7rem" onclick="undo()" disabled>↶ Undo</button>
+      <button class="btn b-ghost" style="padding:5px 10px;font-size:.7rem" onclick="clearSheet('ztender')">🧹 Clear</button>
+    </div>
+  </div>
+  <div class="list" id="list-ztender"></div>
+  <div class="bar">
+    <button class="btn b-red" style="padding:11px 12px;font-size:.75rem" onclick="killExcelBig()">❌</button>
+    <button class="btn b-teal" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('ztender','today')">📅 Today</button>
+    <button class="btn b-amber" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('ztender','next')">📆 Next Day</button>
+  </div>
+</div>
+
+<!-- SETTINGS -->
+<div class="page" id="pg-settings">
+  <div class="head">
+    <div class="t">⚙️ Settings — Reorder Products</div>
+  </div>
+  <div style="display:flex;gap:6px;padding:8px;background:var(--s2);border-bottom:1px solid var(--b1);flex-shrink:0">
+    <div class="stab on" onclick="setTab('fresh',this)">🐔 Chicken</div>
+    <div class="stab" onclick="setTab('goods',this)">📦 Goods</div>
+    <div class="stab" onclick="setTab('kanz',this)">🏷 KANZ</div>
+    <div class="stab" onclick="setTab('tender',this)">🍗 Tender</div>
+  </div>
+  <div style="display:flex;gap:6px;padding:0 8px 8px;background:var(--s2);border-bottom:1px solid var(--b1);flex-shrink:0">
+    <div class="stab" onclick="setTab('noon',this)">🟡 Noon</div>
+    <div class="stab" onclick="setTab('parts',this)">🍖 Parts</div>
+    <div class="stab" onclick="setTab('circle',this)">⚪ Circle</div>
+    <div class="stab" onclick="setTab('ztender',this)">🥩 Z.Tender</div>
+  </div>
+  <div style="padding:10px 12px;background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0">
+    <div style="font-size:.62rem;color:var(--muted);font-family:var(--mono);margin-bottom:4px">ONEDRIVE ACCOUNT</div>
+    <div id="acctInfo" style="font-size:.75rem;color:var(--teal);margin-bottom:8px">Not signed in</div>
+    <button class="btn b-red" style="width:100%;padding:9px;font-size:.75rem" onclick="switchAccount()">🔄 Sign out / Switch Account</button>
+  </div>
+  <div class="list" id="list-settings"></div>
+  <div class="bar">
+    <button class="btn b-ghost" style="flex:1;padding:11px;font-size:.78rem" onclick="resetOrder()">↺ Reset Order</button>
+  </div>
+</div>
+
+<!-- CHECK -->
+<div class="page" id="pg-check">
+  <div class="head"><div class="t">🔍 فحص الكتابة والطباعة</div></div>
+  <div style="padding:10px 12px;background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0;font-size:.72rem;color:var(--muted);line-height:1.5">
+    بيجرّب كل خطوة لحالها: الدخول، إيجاد الملف، فتحه، القراية، والكتابة (بيكتب نفس الرقم الموجود، ما بيغيّر شي)، وآخر أمر طباعة. <b style="color:var(--amber)">ما بيطبع شي.</b>
+  </div>
+  <div style="display:flex;gap:6px;padding:8px;flex-shrink:0">
+    <button class="btn b-teal" id="ckBtn" style="flex:2;padding:11px;font-size:.8rem" onclick="runCheck()">▶ ابدأ الفحص</button>
+    <button class="btn b-ghost" style="flex:1;padding:11px;font-size:.75rem" onclick="copyReport()">📋 نسخ التقرير</button>
+  </div>
+  <div class="list" id="ckOut" style="font-family:var(--mono);font-size:.68rem;line-height:1.55;direction:ltr"></div>
+  <div style="padding:6px 12px 4px;font-size:.62rem;color:var(--muted);font-family:var(--mono);display:flex;justify-content:space-between;flex-shrink:0">
+    <span>LAST ERRORS (saved on this phone)</span><span style="cursor:pointer;color:var(--red)" onclick="clearErrLog()">clear</span></div>
+  <div class="list" id="errOut" style="font-family:var(--mono);font-size:.64rem;line-height:1.45;max-height:30vh;direction:ltr;flex:0 0 auto"></div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ══ CONFIG ══
+const CLIENT_ID='11424af3-de3a-4401-ace9-325149977264';
+let XLSX_PATH=LS_raw('stk_xlsx_path')||'print stickers.xlsx';
+let _fileId=LS_raw('stk_file_id')||null;
+function LS_raw(k){try{return localStorage.getItem(k);}catch{return null;}}
+// نظّف الكاش القديم لو المسار تغيّر
+try{ if(localStorage.getItem('stk_xlsx_path')&&localStorage.getItem('stk_xlsx_path').includes('Desktop')){localStorage.removeItem('stk_xlsx_path');localStorage.removeItem('stk_file_id');} }catch{}
+function LS_rawSet(k,v){try{localStorage.setItem(k,v);}catch{}}
+const SIGNAL_PATH='sticker_signal.json';
+
+const NOON_ITEMS=["Fresh Whole Chicken · 800 gm", "Fresh Whole Chicken · 900 gm", "Fresh Whole Chicken · 1 kg", "Fresh Whole Chicken · 1.1 kg", "Fresh Whole Chicken · 1.2 kg", "Fresh Whole Chicken · 1.3 kg", "Fresh Whole Chicken · 1.4 kg", "Fresh Whole Chicken · 1.5 kg", "Fresh Breast Fillet · 500 gm", "Fresh Breast Fillet · 1 kg", "Fresh Whole Leg · 500 gm", "Fresh Whole Leg · 1 kg", "Fresh Drumsticks · 500 gm", "Fresh Drumsticks · 1 kg", "Fresh Thighs · 500 gm", "Fresh Thighs · 1 kg", "Fresh Liver · 500 gm", "Fresh Liver · 1 kg", "Fresh Hearts · 500 gm", "Fresh Hearts · 1 kg", "Fresh Gizzards · 500 gm", "Fresh Gizzards · 1 kg", "Fresh Whole Leg · Boneless Skinless · 500 gm", "Fresh Whole Leg · Boneless Skinless · 1 kg", "Fresh Whole Leg · Boneless Skin · 500 gm", "Fresh Whole Leg · Boneless Skin · 1 kg", "Fresh Whole Leg · Bone In Skinless · 500 gm", "Fresh Whole Leg · Bone In Skinless · 1 kg", "Fresh Thighs · Boneless Skinless · 500 gm", "Fresh Thighs · Boneless Skinless · 1 kg", "Fresh Thighs · Boneless Skin On · 500 gm", "Fresh Thighs · Boneless Skin On · 1 kg", "Fresh Thighs · Bone In Skinless · 500 gm", "Fresh Thighs · Bone In Skinless · 1 kg", "Fresh Drumsticks · Bone In Skinless · 500 gm", "Fresh Drumsticks · Bone In Skinless · 1 kg", "Fresh Whole Chicken · Boneless Skinless · 800 gm", "Fresh Whole Chicken · Boneless Skinless · 900 gm", "Fresh Whole Chicken · Boneless Skinless · 1 kg", "Fresh Whole Chicken · Boneless Skinless · 1.1 kg", "Fresh Whole Chicken · Boneless Skinless · 1.2 kg", "Fresh Whole Chicken · Boneless Skinless · 1.3 kg", "Fresh Whole Chicken · Boneless Skinless · 1.4 kg", "Fresh Whole Chicken · Boneless Skinless · 1.5 kg", "Fresh Whole Chicken · Boneless Skin On · 800 gm", "Fresh Whole Chicken · Boneless Skin On · 900 gm", "Fresh Whole Chicken · Boneless Skin On · 1 kg", "Fresh Whole Chicken · Boneless Skin On · 1.1 kg", "Fresh Whole Chicken · Boneless Skin On · 1.2 kg", "Fresh Whole Chicken · Boneless Skin On · 1.3 kg", "Fresh Whole Chicken · Boneless Skin On · 1.4 kg", "Fresh Whole Chicken · Boneless Skin On · 1.5 kg", "Fresh Minced Chicken · 500 gm", "Fresh Minced Chicken · 1 kg", "Fresh Breast Cubes · Tawook · 500 gm", "Fresh Breast Cubes · Tawook · 1 kg", "Fresh Breast Strips · 500 gm", "Fresh Breast Strips · 1 kg", "Fresh Breast Slices · 500 gm", "Fresh Breast Slices · 1 kg", "Fresh Mix Cut, 6 Pcs · 800 gm", "Fresh Mix Cut, 6 Pcs · 900 gm", "Fresh Mix Cut, 6 Pcs · 1 kg", "Fresh Mix Cut, 6 Pcs · 1.1 kg", "Fresh Mix Cut, 6 Pcs · 1.2 kg", "Fresh Mix Cut, 6 Pcs · 1.3 kg", "Fresh Mix Cut, 6 Pcs · 1.4 kg", "Fresh Mix Cut, 6 Pcs · 1.5 kg", "Fresh Mix Cut, 8 Pcs · 800 gm", "Fresh Mix Cut, 8 Pcs · 900 gm", "Fresh Mix Cut, 8 Pcs · 1 kg", "Fresh Mix Cut, 8 Pcs · 1.1 kg", "Fresh Mix Cut, 8 Pcs · 1.2 kg", "Fresh Mix Cut, 8 Pcs · 1.3 kg", "Fresh Mix Cut, 8 Pcs · 1.4 kg", "Fresh Mix Cut, 8 Pcs · 1.5 kg", "Fresh Wings · 500 gm", "Fresh Wings · 1 kg", "STRIPS", "SLICES", "STICKS", "SHAWERMA", "BONE", "SKIN", "NECK", "MINCED"];
+const SHEETS={
+  kanz:{name:'KANZ ALMADAM',start:3,items:['Bone','Breast','Chicken BLW Wings','Drum ','Gizzard','Heart ','Liver','Mix Chicken','Neck','Shawrma ','Skin','Thigh','Thigh BL-SL','Thigh BL-SO','Thigh SL','Whole Legs','legs BL-SL','Whole legs BL-SO','Whole legs SL','Wings','MINCED','Whole Legs 500GR','WINGS 500GM','THIGH 500.GM','Tail']},
+  goods:{name:'goods',start:3,items:['Bone','Breast','Chicken BLW Wings','Drum ','Gizzard','Heart ','Liver','Mix Chicken','Neck','Shawrma ','Skin','Thigh','Thigh BL-SL','Thigh BL-SO','Thigh SL','Whole Legs','legs BL-SL','Whole legs BL-SO','Whole legs SL','Wings','MINCED','Whole Legs 500GR']},
+  fresh:{name:'fresh whole chicken',start:2,items:['No Size','500 GR','550 GR','600 GR','650 GR','700 GR','750 GR','800 GR','850 GR','900 GR','950 GR','1000 GR','1050 GR','1100 GR','1150 GR','1200 GR','1250 GR','1300 GR','1350 GR','1400 GR']},
+  tender:{name:'tender',start:3,col:'A',items:['Chicken Breast Tenderized']},
+  // ══ BIG STICKERS — ALBALAD.xlsx (OneDrive/Desktop/new print) — لابتوب الطابعة الكبيرة ══
+  // الكميات بتنبعت جوّا إشارة الطباعة، والسكربت هناك بيكتبها بعمود A وبيطبع
+  noon:{name:'NOON',start:2,col:'A',big:true,label:'Noon',items:NOON_ITEMS},
+  parts:{name:'NOON',start:2,col:'A',big:true,label:'Zaki Parts',items:NOON_ITEMS},
+  circle:{name:'NOON',start:2,col:'A',big:true,label:'Circle',items:NOON_ITEMS},
+  ztender:{name:'ZAKI',start:2,col:'A',big:true,label:'Zaki Tender',items:['Zaki Tender 400 GR','Zaki Tender 450 GR','Zaki Tender 500 GR']}
+};
+const BIG_SIGNAL_PATH='big_sticker_signal.json';
+
+const LS={
+  get:(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d;}catch{return d;}},
+  set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch{}}
+};
+
+let data=LS.get('stk_data',{kanz:{},goods:{},fresh:{},tender:{}});
+if(!data.tender)data.tender={};
+for(const k of ['noon','parts','circle','ztender']) if(!data[k])data[k]={};
+let order=LS.get('stk_order',{});
+// أصناف مخصّصة يضيفها المستخدم (kanz و goods فقط) - تُكتب بآخر الشيت
+let customItems=LS.get('stk_custom',{kanz:[],goods:[]});
+if(!customItems.kanz)customItems.kanz=[];
+if(!customItems.goods)customItems.goods=[];
+
+// قائمة أصناف القسم = الأصلية + المخصّصة (لكل مخصّص صفّه بالإكسيل)
+function itemsOf(key){
+  const base=SHEETS[key].items.map((name,i)=>({name,row:SHEETS[key].start+i,custom:false}));
+  const extra=(customItems[key]||[]).map((c)=>({name:c.name,row:c.row,custom:true}));
+  return [...base,...extra];
+}
+// أول صف فاضي بعد كل الأصناف (الأصلية + المخصّصة)
+function nextFreeRow(key){
+  const rows=itemsOf(key).map(x=>x.row);
+  return rows.length ? Math.max(...rows)+1 : SHEETS[key].start;
+}
+let msalApp=null;
+let _setTab='fresh';
+
+// ── Undo ──
+let _undo=[];
+let _undoLast={k:null,t:0};
+const UNDO_MAX=40;
+function snapshot(key,row){
+  const now=Date.now();
+  const id=key+':'+row;
+  // ادمج التعديلات المتتالية على نفس المنتج خلال ثانية
+  if(_undoLast.k===id && now-_undoLast.t<1000){_undoLast.t=now;return;}
+  _undoLast={k:id,t:now};
+  _undo.push({key,data:JSON.parse(JSON.stringify(data[key]))});
+  if(_undo.length>UNDO_MAX)_undo.shift();
+  updUndo();
+}
+function snapshotAll(key){
+  _undoLast={k:null,t:0};
+  _undo.push({key,data:JSON.parse(JSON.stringify(data[key]))});
+  if(_undo.length>UNDO_MAX)_undo.shift();
+  updUndo();
+}
+function undo(){
+  if(!_undo.length){toast('Nothing to undo');return;}
+  const s=_undo.pop();
+  data[s.key]=s.data;
+  LS.set('stk_data',data);
+  render(s.key);
+  _undoLast={k:null,t:0};
+  updUndo();
+  // انتقل للصفحة لو كنت بغيرها
+  const cur=document.querySelector('.page.on')?.id.replace('pg-','');
+  if(cur!==s.key&&cur!=='settings'){
+    const el=document.querySelector('.ntab[data-p="'+s.key+'"]');
+    if(el)show(s.key,el);
+  }
+  toast('↶ Undone','ok');
+}
+function updUndo(){
+  document.querySelectorAll('.undoBtn').forEach(b=>{
+    b.disabled=!_undo.length;
+    b.textContent='↶ Undo'+(_undo.length?' ('+_undo.length+')':'');
+  });
+}
+
+// ترتيب الصفوف حسب تفضيل المستخدم (الصف بالإكسيل ما بيتغير)
+function getRows(key){
+  const def=itemsOf(key).map(x=>({row:x.row,name:x.name.trim(),custom:x.custom}));
+  const saved=order[key];
+  if(!saved||!saved.length) return def;
+  const map=new Map(def.map(d=>[d.row,d]));
+  const out=[];
+  saved.forEach(r=>{ if(map.has(r)){out.push(map.get(r));map.delete(r);} });
+  map.forEach(v=>out.push(v)); // أي منتج جديد ينضاف بالآخر
+  return out;
+}
+function saveOrder(key,rows){
+  order[key]=rows.map(r=>r.row);
+  LS.set('stk_order',order);
+}
+
+// ══ UI ══
+let _toastT=null;
+function toast(m,t){
+  const e=document.getElementById('toast');
+  if(!e)return;
+  if(_toastT){clearTimeout(_toastT);_toastT=null;}
+  e.textContent=m;
+  e.className='on '+(t||'');
+  e.onclick=()=>{e.className='';};
+  _toastT=setTimeout(()=>{e.className='';_toastT=null;},t==='err'?12000:2200);
+}
+function ind(s){
+  const e=document.getElementById('ind');
+  if(!e)return;
+  e.textContent={dirty:'🟠',saving:'☁️',saved:'✅',err:'🔴'}[s]||'🟢';
+  if(s==='saved')setTimeout(()=>{e.textContent='🟢';},1800);
+}
+function show(p,t){
+  document.querySelectorAll('.page').forEach(x=>x.classList.remove('on'));
+  document.querySelectorAll('.ntab').forEach(x=>x.classList.remove('on'));
+  document.getElementById('pg-'+p).classList.add('on');
+  if(t)t.classList.add('on');
+}
+
+let _flt={};
+function filterList(key,q){
+  _flt[key]=(q||'').toLowerCase().trim();
+  document.querySelectorAll('#list-'+key+' .row').forEach(r=>{
+    const n=r.querySelector('.name').textContent.toLowerCase();
+    r.style.display=(!_flt[key]||n.includes(_flt[key])||r.querySelector('input').value)?'':'none';
+  });
+}
+function render(key){
+  const el=document.getElementById('list-'+key);
+  el.innerHTML=getRows(key).map(({row,name,custom})=>{
+    const v=data[key][row]||'';
+    return `<div class="row">
+      <span class="name">${name}${custom?' <span style="font-size:.6rem;color:var(--teal)">•جديد</span>':''}</span>
+      ${custom?`<button class="stp" style="color:var(--red);border-color:var(--red)" onclick="delCustom('${key}',${row})">✕</button>`:''}
+      <button class="stp minus" onclick="step(this,-10)">−10</button>
+      <input type="number" min="0" step="1" inputmode="numeric" value="${v}" placeholder="0"
+        data-key="${key}" data-row="${row}"
+        onfocus="this.select()" onclick="this.select()"
+        oninput="onInput(this)" onkeyup="onInput(this)"
+        onkeydown="if(event.key==='Enter'){event.preventDefault();nextInput(this);}"/>
+      <button class="stp" onclick="step(this,10)">+10</button>
+    </div>`;
+  }).join('');
+  if(_flt[key])filterList(key,_flt[key]);
+}
+
+// ── إضافة/حذف أصناف مخصّصة (kanz و goods) ──
+function addCustom(key){
+  const name=prompt('اسم الصنف الجديد:');
+  if(!name||!name.trim())return;
+  const row=nextFreeRow(key);
+  customItems[key].push({name:name.trim(),row});
+  LS.set('stk_custom',customItems);
+  render(key);
+  toast('✓ أُضيف — سيُكتب بالإكسيل عند الطباعة','ok');
+}
+function delCustom(key,row){
+  if(!confirm('حذف هذا الصنف؟'))return;
+  customItems[key]=(customItems[key]||[]).filter(c=>c.row!==row);
+  LS.set('stk_custom',customItems);
+  delete data[key][row];
+  LS.set('stk_data',data);
+  // نظّف من الترتيب المحفوظ
+  if(order[key])order[key]=order[key].filter(r=>r!==row);
+  LS.set('stk_order',order);
+  render(key);
+  toast('✓ حُذف','ok');
+}
+
+function onInput(el){
+  const k=el.dataset.key, r=el.dataset.row, v=parseInt(el.value)||0;
+  snapshot(k,r);
+  if(v>0){data[k][r]=v;el.classList.add('has');}
+  else{delete data[k][r];el.classList.remove('has');}
+  LS.set('stk_data',data);
+  ind('dirty');
+}
+function step(btn,d){
+  const row=btn.closest('.row');
+  const el=row.querySelector('input');
+  const v=(parseInt(el.value)||0)+d;
+  el.value=v>0?v:'';
+  onInput(el);
+}
+function nextInput(el){
+  const all=[...el.closest('.list').querySelectorAll('input')];
+  const i=all.indexOf(el);
+  if(all[i+1]){all[i+1].focus();all[i+1].select();}
+  else el.blur();
+}
+function clearSheet(key){
+  if(!Object.keys(data[key]).length){toast('Already empty');return;}
+  if(!confirm('Clear all quantities?'))return;
+  snapshotAll(key);
+  data[key]={};
+  LS.set('stk_data',data);
+  render(key);
+  toast('✓ Cleared','ok');
+}
+
+// ══ ACCOUNT ══
+async function showAccount(){
+  try{
+    await initMsal();
+    const acc=msalApp.getAllAccounts();
+    const el=document.getElementById('acctInfo');
+    if(el) el.textContent = acc.length ? (acc[0].username||acc[0].name||'Signed in') : 'Not signed in';
+  }catch(e){}
+}
+async function switchAccount(){
+  try{
+    await initMsal();
+    // امسح كل الحسابات والـ cache
+    localStorage.removeItem('stk_file_id');
+    localStorage.removeItem('stk_xlsx_path');
+    _fileId=null;
+    const acc=msalApp.getAllAccounts();
+    for(const a of acc){ try{ await msalApp.logoutPopup({account:a}); }catch(e){} }
+    // سجّل دخول جديد مع اختيار الحساب
+    const r=await msalApp.loginPopup({scopes:['Files.ReadWrite'],prompt:'select_account'});
+    toast('✓ Signed in: '+(r.account?.username||''),'ok');
+    showAccount();
+  }catch(e){
+    toast('✗ '+e.message,'err');
+  }
+}
+
+// ══ SETTINGS: REORDER ══
+function setTab(key,el){
+  _setTab=key;
+  document.querySelectorAll('.stab').forEach(x=>x.classList.remove('on'));
+  if(el)el.classList.add('on');
+  renderSettings();
+}
+function renderSettings(){
+  const rows=getRows(_setTab);
+  document.getElementById('list-settings').innerHTML=rows.map((r,i)=>`
+    <div class="srow" draggable="true" data-i="${i}"
+      ondragstart="dgStart(event,${i})" ondragover="dgOver(event,${i})"
+      ondrop="dgDrop(event,${i})" ondragend="dgEnd(event)"
+      ontouchstart="tStart(event,${i})" ontouchmove="tMove(event)" ontouchend="tEnd(event)">
+      <span class="h">⠿</span>
+      <span class="idx">${i+1}</span>
+      <span class="n">${r.name}</span>
+      <button class="mv" onclick="move(${i},-1)">▲</button>
+      <button class="mv" onclick="move(${i},1)">▼</button>
+    </div>`).join('');
+}
+function move(i,d){
+  const rows=getRows(_setTab);
+  const j=i+d;
+  if(j<0||j>=rows.length)return;
+  [rows[i],rows[j]]=[rows[j],rows[i]];
+  saveOrder(_setTab,rows);
+  renderSettings();
+  render(_setTab);
+}
+function reorderTo(from,to){
+  if(from===to)return;
+  const rows=getRows(_setTab);
+  const [m]=rows.splice(from,1);
+  rows.splice(to,0,m);
+  saveOrder(_setTab,rows);
+  renderSettings();
+  render(_setTab);
+}
+function resetOrder(){
+  if(!confirm('Reset to default order?'))return;
+  delete order[_setTab];
+  LS.set('stk_order',order);
+  renderSettings();
+  render(_setTab);
+  toast('✓ Order reset','ok');
+}
+
+// Drag (desktop)
+let _dgFrom=null;
+function dgStart(e,i){_dgFrom=i;e.currentTarget.classList.add('drag');}
+function dgOver(e,i){
+  e.preventDefault();
+  document.querySelectorAll('.srow').forEach(x=>x.classList.remove('over'));
+  if(_dgFrom!==null&&_dgFrom!==i)e.currentTarget.classList.add('over');
+}
+function dgDrop(e,i){
+  e.preventDefault();
+  document.querySelectorAll('.srow').forEach(x=>x.classList.remove('over'));
+  if(_dgFrom!==null)reorderTo(_dgFrom,i);
+  _dgFrom=null;
+}
+function dgEnd(e){
+  document.querySelectorAll('.srow').forEach(x=>x.classList.remove('drag','over'));
+  _dgFrom=null;
+}
+
+// Touch drag (mobile) - بس من المقبض ⠿
+let _tFrom=null,_tOver=null;
+function tStart(e,i){
+  if(!e.target.classList.contains('h'))return;
+  _tFrom=i; _tOver=i;
+  e.currentTarget.classList.add('drag');
+}
+function tMove(e){
+  if(_tFrom===null)return;
+  e.preventDefault();
+  const t=e.touches[0];
+  const el=document.elementFromPoint(t.clientX,t.clientY)?.closest('.srow');
+  document.querySelectorAll('.srow').forEach(x=>x.classList.remove('over'));
+  if(el){
+    _tOver=parseInt(el.dataset.i);
+    if(_tOver!==_tFrom)el.classList.add('over');
+  }
+}
+function tEnd(e){
+  if(_tFrom===null)return;
+  document.querySelectorAll('.srow').forEach(x=>x.classList.remove('drag','over'));
+  if(_tOver!==null&&_tOver!==_tFrom)reorderTo(_tFrom,_tOver);
+  _tFrom=null;_tOver=null;
+}
+
+// ══ ONEDRIVE ══
+async function initMsal(){
+  if(msalApp)return;
+  if(typeof msal==='undefined'){
+    for(let i=0;i<20 && typeof msal==='undefined';i++) await new Promise(r=>setTimeout(r,300));
+    if(typeof msal==='undefined') throw new Error('Login library failed to load - check internet');
+  }
+  msalApp=new msal.PublicClientApplication({
+    auth:{clientId:CLIENT_ID,authority:'https://login.microsoftonline.com/consumers',
+      redirectUri:'https://derghamz88-blip.github.io/Stickers-/stickers.html'},
+    cache:{cacheLocation:'localStorage'}
+  });
+  await msalApp.initialize();
+}
+async function getToken(){
+  await initMsal();
+  const scopes=['Files.ReadWrite'];
+  try{
+    const acc=msalApp.getAllAccounts();
+    if(acc.length){const r=await msalApp.acquireTokenSilent({scopes,account:acc[0]});return r.accessToken;}
+  }catch(e){}
+  const r=await msalApp.loginPopup({scopes});
+  return r.accessToken;
+}
+
+// إيجاد ملف الإكسيل - يبحث لحاله لو المسار تغير
+async function findFile(token){
+  const H={'Authorization':'Bearer '+token};
+  // 1) جرّب الـ id المحفوظ
+  if(_fileId){
+    const r=await fetch(`https://graph.microsoft.com/v1.0/me/drive/items/${_fileId}`,{headers:H});
+    if(r.ok) return _fileId;
+    _fileId=null;
+  }
+  // 2) جرّب المسار المعروف
+  const paths=[XLSX_PATH,'print stickers.xlsx','print_stickers.xlsx','Desktop/new print/print stickers.xlsx','Desktop/new print/print_stickers.xlsx'];
+  for(const p of paths){
+    try{
+      const r=await fetch(`https://graph.microsoft.com/v1.0/me/drive/root:/${p.split('/').map(encodeURIComponent).join('/')}`,{headers:H});
+      if(r.ok){
+        const j=await r.json();
+        _fileId=j.id; XLSX_PATH=p;
+        LS_rawSet('stk_file_id',j.id); LS_rawSet('stk_xlsx_path',p);
+        return j.id;
+      }
+    }catch(e){}
+  }
+  // 3) ابحث بكل الـ OneDrive
+  try{
+    const r=await fetch(`https://graph.microsoft.com/v1.0/me/drive/root/search(q='print stickers')?$top=25`,{headers:H});
+    if(r.ok){
+      const j=await r.json();
+      const hit=(j.value||[]).find(x=>x.name&&/^print[ _]stickers/i.test(x.name)&&x.name.toLowerCase().endsWith('.xlsx'));
+      if(hit){
+        _fileId=hit.id;
+        LS_rawSet('stk_file_id',hit.id);
+        console.log('✓ Found file via search:',hit.parentReference?.path,'/',hit.name);
+        return hit.id;
+      }
+    }
+  }catch(e){}
+  throw new Error('print stickers.xlsx not found in OneDrive');
+}
+
+// ── Graph helpers: خطأ كامل + إعادة محاولة + جلسة ──
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function fmtErr(status,txt){
+  let code='',msg='',inner='';
+  try{
+    const e=JSON.parse(txt).error||{};
+    code=e.code||''; msg=e.message||'';
+    let i=e.innerError||e.innererror;
+    while(i){ if(i.code)inner=i.code; i=i.innerError||i.innererror; }
+  }catch{ msg=(txt||'').slice(0,160); }
+  return `[${status}] ${code}${inner?' / '+inner:''}${msg?' — '+msg:''}`;
+}
+async function gfetch(url,opt,tries=4){
+  let last;
+  for(let i=0;i<tries;i++){
+    try{
+      const r=await fetch(url,opt);
+      if(r.ok) return r;
+      last=new Error(fmtErr(r.status,await r.text()));
+      last.status=r.status;
+      if(![409,423,429,500,502,503,504].includes(r.status)) throw Object.assign(last,{final:true});
+    }catch(e){ if(e.final) throw e; last=e; }
+    if(i<tries-1){ toast('⏳ إعادة المحاولة '+(i+1)+'/'+(tries-1)+'...'); await sleep(2000*(i+1)); }
+  }
+  throw last;
+}
+async function openSession(wb,token){
+  try{
+    const r=await fetch(wb+'/createSession',{method:'POST',
+      headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},
+      body:JSON.stringify({persistChanges:true})});
+    if(r.ok) return (await r.json()).id||null;
+  }catch(e){}
+  return null;
+}
+// تشخيص: ليش فشلت الكتابة؟
+async function diagnose(wb,token,sheetName,orig){
+  try{
+    const r=await fetch(wb+'/worksheets?$select=name',{headers:{'Authorization':'Bearer '+token}});
+    if(!r.ok) return 'الملف ما عم يفتح بـ Excel Online (مقفول/مفتوح عاللابتوب أو فيه مشكلة) '+fmtErr(r.status,await r.text());
+    const names=((await r.json()).value||[]).map(x=>x.name);
+    if(!names.some(n=>n.toLowerCase()===sheetName.toLowerCase()))
+      return 'الشيت "'+sheetName+'" مش موجود. الموجود: '+names.join(' | ');
+    return 'الملف والشيت موجودين بس الكتابة انرفضت (غالباً الملف مقفول أو الشيت محمي) '+orig;
+  }catch(e){ return orig; }
+}
+
+// كتابة الكميات (عمود B) + أسماء الأصناف المخصّصة (عمود C)
+async function writeSheet(key,token){
+  const cfg=SHEETS[key];
+  const fid=await findFile(token);
+  const wb=`https://graph.microsoft.com/v1.0/me/drive/items/${fid}/workbook`;
+  const base=`${wb}/worksheets/${encodeURIComponent(cfg.name)}`;
+  const sid=await openSession(wb,token);
+  const HW={'Authorization':'Bearer '+token,'Content-Type':'application/json'};
+  if(sid) HW['workbook-session-id']=sid;
+
+  const all=itemsOf(key);                       // الأصلية + المخصّصة
+  const rows=all.map(x=>x.row);
+  const startRow=Math.min(...rows), endRow=Math.max(...rows);
+  const col=cfg.col||'B';
+
+  // 1) الكميات - صفر صريح للفاضي (يمسح القديم)
+  const qty=[];
+  for(let r=startRow;r<=endRow;r++){
+    qty.push([parseInt(data[key][r])||0]);
+  }
+  const url=`${base}/range(address='${col}${startRow}:${col}${endRow}')`;
+  try{
+    await gfetch(url,{method:'PATCH',headers:HW,body:JSON.stringify({values:qty})});
+  }catch(e){
+    // جرّب الطريقة التانية (بلا جلسة / مع جلسة جديدة) قبل ما نستسلم
+    let ok=false;
+    try{
+      const H2={'Authorization':'Bearer '+token,'Content-Type':'application/json'};
+      if(!sid){const s2=await openSession(wb,token);if(s2)H2['workbook-session-id']=s2;}
+      await gfetch(url,{method:'PATCH',headers:H2,body:JSON.stringify({values:qty})},2);
+      ok=true; logErr('write '+cfg.name,'first try failed, second way worked: '+e.message);
+    }catch(e2){}
+    if(!ok) throw new Error(await diagnose(wb,token,cfg.name,e.message));
+  }
+
+  // 2) أسماء الأصناف المخصّصة بعمود C (فقط للأقسام اللي تدعم الإضافة)
+  const customs=(customItems[key]||[]);
+  if(customs.length){
+    for(const c of customs){
+      await gfetch(`${base}/range(address='C${c.row}')`,{
+        method:'PATCH',headers:HW,body:JSON.stringify({values:[[c.name]]})
+      });
+    }
+  }
+  if(sid){ try{ await fetch(wb+'/closeSession',{method:'POST',headers:HW}); }catch(e){} }
+}
+
+async function sendSignal(jobs,token,saveTs){
+  const r=await fetch(`https://graph.microsoft.com/v1.0/me/drive/root:/${SIGNAL_PATH}:/content`,{
+    method:'PUT',
+    headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},
+    body:JSON.stringify({jobs,ts:Date.now(),save_ts:saveTs||0})
+  });
+  if(!r.ok) throw new Error('Print signal failed '+fmtErr(r.status,await r.text()));
+}
+
+// ══ ACTIONS ══
+async function saveNow(showMsg){
+  ind('saving');
+  try{
+    const token=await getToken();
+    const cur=document.querySelector('.page.on').id.replace('pg-','');
+    if(!SHEETS[cur]){ind();if(showMsg)toast('افتح تاب المنتجات أول (مش Settings)');return;}
+    if(SHEETS[cur].big){ind();if(showMsg)toast('الستيكرات الكبيرة بتنحفظ وقت الطباعة (Today / Next Day)');return;}
+    await writeSheet(cur,token);
+    ind('saved');
+    if(showMsg)toast('✓ Saved to Excel','ok');
+  }catch(e){
+    ind('err');
+    logErr('save',e.message);
+    if(showMsg)toast('✗ '+e.message,'err');
+  }
+}
+
+async function printJob(key,day){
+  const cfg=SHEETS[key];
+  if(cfg.big) return printBig(key,day);
+  const count=Object.keys(data[key]).length;
+  if(!count){toast('No quantities entered','err');return;}
+
+  const btns=document.querySelectorAll('#pg-'+key+' .bar button');
+  btns.forEach(b=>b.disabled=true);
+  ind('saving');
+  try{
+    const token=await getToken();
+    // 1. سجل الوقت قبل الحفظ
+    const saveTs=Date.now();
+    // 2. اكتب الكميات بالإكسيل
+    await writeSheet(key,token);
+    ind('saved');
+    // 3. أرسل الإشارة
+    await sendSignal([{action:'print_sticker',sheet:key,day:day||'',_id:Date.now()+Math.random()}],token,saveTs);
+    const lbl=key==='kanz'?'KANZ':(day==='next'?'Next Day':'Today');
+    toast(`✓ ${count} products → printing ${lbl}...`,'ok');
+  }catch(e){
+    ind('err');
+    logErr('print '+key+(day?' '+day:''),e.message);
+    toast('✗ '+e.message+'  — افتح 🔍 Check','err');
+  }finally{
+    btns.forEach(b=>b.disabled=false);
+  }
+}
+
+// ══ BIG STICKERS ══
+async function printBig(key,day){
+  const cfg=SHEETS[key];
+  const count=Object.keys(data[key]).length;
+  if(!count){toast('No quantities entered','err');return;}
+  const btns=document.querySelectorAll('#pg-'+key+' .bar button');
+  btns.forEach(b=>b.disabled=true);
+  ind('saving');
+  try{
+    const token=await getToken();
+    const end=cfg.start+cfg.items.length-1;
+    const values=[];
+    for(let r=cfg.start;r<=end;r++) values.push([parseInt(data[key][r])||0]);
+    await sendBigSignal([{action:'print_big',label:key,day:day||'today',sheet:cfg.name,col:cfg.col||'A',
+      start:cfg.start,end,values,_id:Date.now()+Math.random()}],token);
+    ind('saved');
+    toast(`✓ ${count} → ${cfg.label} ${day==='next'?'Next Day':'Today'} (big printer)...`,'ok');
+  }catch(e){
+    ind('err'); logErr('big print '+key+' '+day,e.message); toast('✗ '+e.message,'err');
+  }finally{ btns.forEach(b=>b.disabled=false); }
+}
+async function sendBigSignal(jobs,token){
+  const r=await fetch(`https://graph.microsoft.com/v1.0/me/drive/root:/${BIG_SIGNAL_PATH}:/content`,{
+    method:'PUT',headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},
+    body:JSON.stringify({jobs,ts:Date.now()})});
+  if(!r.ok) throw new Error('Big print signal failed '+fmtErr(r.status,await r.text()));
+}
+async function killExcelBig(){
+  try{ const token=await getToken();
+    await sendBigSignal([{action:'kill_excel',_id:Date.now()+Math.random()}],token);
+    toast('✓ Closing Excel on big-printer laptop...','ok');
+  }catch(e){toast('✗ '+e.message,'err');}
+}
+
+async function killExcel(){
+  try{
+    const token=await getToken();
+    await sendSignal([{action:'kill_excel',_id:Date.now()+Math.random()}],token,0);
+    toast('✓ Closing Excel...','ok');
+  }catch(e){toast('✗ '+e.message,'err');}
+}
+
+// ══ CHECK / ERROR LOG ══
+function logErr(where,msg){
+  try{
+    const a=JSON.parse(localStorage.getItem('stk_errlog')||'[]');
+    a.unshift({t:new Date().toLocaleString(),where,msg:String(msg).slice(0,600)});
+    localStorage.setItem('stk_errlog',JSON.stringify(a.slice(0,30)));
+  }catch(e){}
+  renderErrLog();
+}
+function renderErrLog(){
+  const el=document.getElementById('errOut');if(!el)return;
+  let a=[];try{a=JSON.parse(localStorage.getItem('stk_errlog')||'[]');}catch(e){}
+  el.innerHTML=a.length?a.map(x=>`<div class="ck bad"><span class="h">${esc(x.t)} · ${esc(x.where)}</span>\n${esc(x.msg)}</div>`).join(''):'<div class="ck">No errors saved.</div>';
+}
+function clearErrLog(){try{localStorage.removeItem('stk_errlog');}catch(e){}renderErrLog();}
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+let _ckLines=[];
+function ck(kind,head,detail,hint){
+  _ckLines.push(`[${kind.toUpperCase()}] ${head}${detail?' — '+detail:''}${hint?'\n   → '+hint:''}`);
+  const el=document.getElementById('ckOut');
+  el.insertAdjacentHTML('beforeend',`<div class="ck ${kind}"><span class="h">${kind==='ok'?'✓':kind==='bad'?'✗':kind==='warn'?'!':'·'} ${esc(head)}</span>${detail?'\n'+esc(detail):''}${hint?`<span class="hint">${esc(hint)}</span>`:''}</div>`);
+  el.scrollTop=el.scrollHeight;
+}
+function ago(iso){if(!iso)return '?';const m=Math.round((Date.now()-new Date(iso).getTime())/60000);
+  return m<1?'just now':m<60?m+' min ago':m<1440?Math.round(m/60)+' h ago':Math.round(m/1440)+' days ago';}
+async function gj(url,token,opt){
+  const t0=Date.now();
+  const r=await (window.__rawFetch||fetch)(url,Object.assign({headers:{'Authorization':'Bearer '+token}},opt||{}));
+  const txt=await r.text();let j=null;try{j=JSON.parse(txt);}catch(e){}
+  return {ok:r.ok,status:r.status,j,txt,ms:Date.now()-t0,err:r.ok?'':fmtErr(r.status,txt)};
+}
+async function runCheck(){
+  const btn=document.getElementById('ckBtn');btn.disabled=true;btn.textContent='⏳ عم يفحص...';
+  document.getElementById('ckOut').innerHTML='';_ckLines=[`IAT Stickers check — ${new Date().toLocaleString()} — ${navigator.userAgent}`];
+  const G='https://graph.microsoft.com/v1.0';
+  let token,fid,wb,sid=null;
+  try{
+    // 1. login library + account
+    ck('info','Write mode now: '+((window.xlMode&&window.xlMode())==='laptop'?'🖥 LAPTOP (the laptop writes into Excel)':'☁ DIRECT (the phone writes through Microsoft)'),'','This check always tests the DIRECT way. In 🖥 Laptop mode the result of each save shows on the small pill bottom-left.');
+    try{await initMsal();ck('ok','Login library loaded');}
+    catch(e){ck('bad','Login library',e.message,'النت ضعيف أو الصفحة ما حمّلت كاملة. حدّث الصفحة.');return;}
+    const acc=msalApp.getAllAccounts();
+    ck(acc.length?'ok':'warn','Account',acc.length?acc.map(a=>a.username).join(', '):'not signed in',acc.length>1?'في أكتر من حساب مسجّل. اعمل Sign out / Switch Account من Settings وادخل بالحساب الصح بس.':acc.length?'':'رح يطلب منك تسجيل دخول.');
+    try{token=await getToken();ck('ok','Token received');}
+    catch(e){ck('bad','Token',e.message,'سجّل دخول من جديد: Settings ← Sign out / Switch Account.');return;}
+
+    // 2. drive
+    let r=await gj(`${G}/me/drive?$select=owner,quota,driveType`,token);
+    if(!r.ok){ck('bad','OneDrive',r.err,r.status===401?'الدخول انتهى. Sign out ورجوع.':'OneDrive ما عم يرد.');return;}
+    const q=r.j.quota||{};const used=q.used||0,tot=q.total||0;
+    ck(tot&&used/tot>.95?'bad':'ok','OneDrive',`${r.j.owner?.user?.displayName||''} · ${r.j.driveType} · used ${(used/1e9).toFixed(2)} of ${(tot/1e9).toFixed(1)} GB · state: ${q.state||'?'}`,
+      tot&&used/tot>.95?'المساحة شبه مليانة، وهاد بيوقف الكتابة.':'');
+
+    // 3. file
+    try{fid=await findFile(token);}catch(e){ck('bad','Find "print stickers.xlsx"',e.message,'الملف مش موجود بهالحساب أو تغيّر اسمه.');return;}
+    r=await gj(`${G}/me/drive/items/${fid}?$select=name,size,lastModifiedDateTime,lastModifiedBy,parentReference,file`,token);
+    if(r.ok){const f=r.j;ck('ok','File',`${(f.parentReference?.path||'').replace('/drive/root:','')}/${f.name} · ${(f.size/1024).toFixed(0)} KB · changed ${ago(f.lastModifiedDateTime)} by ${f.lastModifiedBy?.user?.displayName||f.lastModifiedBy?.application?.displayName||'?'}`);
+      if(f.size>25e6)ck('warn','File size','big file','ملف كبير، وExcel Online أحياناً بيعلق معه.');}
+    // duplicates / conflict copies
+    r=await gj(`${G}/me/drive/root/search(q='print stickers')?$top=25&$select=name,parentReference,lastModifiedDateTime`,token);
+    if(r.ok){const hits=(r.j.value||[]).filter(x=>/print[ _]stickers/i.test(x.name));
+      ck(hits.length>1?'warn':'ok','Copies of the file',hits.map(x=>`${(x.parentReference?.path||'').replace('/drive/root:','')}/${x.name} (${ago(x.lastModifiedDateTime)})`).join('\n'),
+        hits.length>1?'في أكتر من نسخة. التطبيق بيكتب بأول وحدة لقاها، والبرنامج عاللابتوب ممكن يكون عم يطبع من غيرها. شيل النسخ الزيادة (خاصة يلي اسمها فيه اسم لابتوب).':'');}
+
+    // 4. workbook
+    wb=`${G}/me/drive/items/${fid}/workbook`;
+    r=await gj(`${wb}/worksheets?$select=name,visibility,position`,token);
+    if(!r.ok){ck('bad','Open in Excel Online',r.err,'Excel Online ما قدر يفتح الملف. افتحه بالمتصفح من onedrive.live.com: إذا ما فتح هناك كمان، المشكلة بالملف أو عند Microsoft.');}
+    else{const names=(r.j.value||[]).map(x=>x.name);ck('ok',`Open in Excel Online (${r.ms} ms)`,names.join(' | '));
+      for(const k in SHEETS){if(SHEETS[k].big)continue;const n=SHEETS[k].name;if(!names.some(x=>x.toLowerCase()===n.toLowerCase()))ck('bad',`Sheet "${n}" missing`,'',`الشيت "${n}" مش موجود بالملف، أو انغيّر اسمه.`);}}
+
+    // 5. session
+    r=await gj(`${wb}/createSession`,token,{method:'POST',headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({persistChanges:true})});
+    if(r.ok){sid=r.j.id;ck('ok',`Edit session (${r.ms} ms)`);}
+    else ck('bad','Edit session',r.err,r.status===423||/lock/i.test(r.txt)?'الملف مقفول، غالباً مفتوح بالإكسل عاللابتوب. سكّر الإكسل هناك (أو زر "kill excel").':'Excel Online رفض يفتح جلسة تعديل.');
+
+    // 6. read + write the same value back
+    const cfg=SHEETS.goods,col=cfg.col||'B',addr=`${col}${cfg.start}`;
+    const base=`${wb}/worksheets/${encodeURIComponent(cfg.name)}`;
+    const HS=sid?{'workbook-session-id':sid}:{};
+    r=await gj(`${base}/range(address='${addr}')?$select=values`,token,{headers:Object.assign({'Authorization':'Bearer '+token},HS)});
+    if(!r.ok){ck('bad',`Read ${cfg.name}!${addr}`,r.err);}
+    else{
+      const v=r.j.values;ck('ok',`Read ${cfg.name}!${addr} (${r.ms} ms)`,'value: '+JSON.stringify(v));
+      for(const [label,h] of [['with session',HS],['without session',{}]]){
+        if(label==='with session'&&!sid)continue;
+        const w=await gj(`${base}/range(address='${addr}')`,token,{method:'PATCH',headers:Object.assign({'Authorization':'Bearer '+token,'Content-Type':'application/json'},h),body:JSON.stringify({values:v})});
+        ck(w.ok?'ok':'bad',`Write test ${label} (${w.ms} ms)`,w.ok?'same value written back - OK':w.err,
+          w.ok?'':(w.status===423||/lock/i.test(w.txt))?'الملف مقفول من مكان تاني (الإكسل عاللابتوب).':/UnknownError|GeneralException|ServiceUnavailable/i.test(w.txt)?'محرك Excel Online عند Microsoft فشل بالكتابة. جرّب بعد شوي، أو افتح الملف بالمتصفح واكتب فيه شي واحفظ، وبعدين ارجع جرّب.':'');
+      }
+    }
+    if(sid){await gj(`${wb}/closeSession`,token,{method:'POST',headers:{'Authorization':'Bearer '+token,'workbook-session-id':sid}});}
+
+    // 7. print signal (read only)
+    r=await gj(`${G}/me/drive/root:/${SIGNAL_PATH}`,token);
+    if(r.status===404)ck('info','Print signal file','sticker_signal.json not found (no print sent yet, or the laptop removed it)');
+    else if(!r.ok)ck('bad','Print signal file',r.err);
+    else{
+      const c=await gj(`${G}/me/drive/root:/${SIGNAL_PATH}:/content`,token);
+      let jobs='',age='';try{const j=c.j||{};jobs=(j.jobs||[]).map(x=>x.action+(x.sheet?':'+x.sheet:'')+(x.day?':'+x.day:'')).join(', ');age=j.ts?ago(new Date(j.ts).toISOString()):'';}catch(e){}
+      ck('info','Last print signal',`changed ${ago(r.j.lastModifiedDateTime)} by ${r.j.lastModifiedBy?.user?.displayName||'?'} · jobs: ${jobs||'(empty)'}${age?' · sent '+age:''}`,
+        'إذا بعتت طباعة وما طبع: الإشارة وصلت عالـ OneDrive، فالمشكلة عاللابتوب (برنامج الطباعة واقف، أو الـ OneDrive عاللابتوب ما عم يزامن، أو الإكسل/الطابعة).');
+    }
+    ck('ok','Check finished','');
+  }catch(e){ck('bad','Check stopped',e.message);}
+  finally{btn.disabled=false;btn.textContent='▶ ابدأ الفحص';}
+}
+async function copyReport(){
+  let errs=[];try{errs=JSON.parse(localStorage.getItem('stk_errlog')||'[]');}catch(e){}
+  const txt=_ckLines.join('\n')+'\n\nLast errors:\n'+errs.slice(0,10).map(x=>`${x.t} ${x.where}: ${x.msg}`).join('\n');
+  try{await navigator.clipboard.writeText(txt);toast('✓ Copied — الزقه بالشات','ok');}
+  catch(e){const ta=document.createElement('textarea');ta.value=txt;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();toast('✓ Copied','ok');}
+}
+
+// ══ INIT ══
+render('fresh'); render('goods'); render('kanz'); render('tender');
+render('noon'); render('parts'); render('circle'); render('ztender'); renderSettings();
+setTimeout(showAccount,1200);
+renderErrLog();
+updUndo();
+document.querySelectorAll('input').forEach(i=>{if(i.value)i.classList.add('has');});
+</script>
+</body>
+</html>
