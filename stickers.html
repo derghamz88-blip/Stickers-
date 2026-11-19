@@ -261,6 +261,9 @@ nav{background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0}
   font-size:.8rem;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;flex-shrink:0;
   border-bottom:2.5px solid transparent;transition:all .15s}
 .ntab.on{color:var(--txt);border-bottom-color:var(--teal);background:var(--s2)}
+.nsep{display:flex;align-items:center;padding:0 6px 0 10px;font-size:.6rem;font-family:var(--mono);color:var(--purple);font-weight:800;flex-shrink:0;border-left:1px solid var(--b1)}
+.ntab.big.on{border-bottom-color:var(--purple)}
+.flt{width:100%;padding:8px 10px;border:1px solid var(--b2);border-radius:8px;background:var(--s3);color:var(--txt);font-size:.8rem;outline:none}
 .page{display:none;flex:1;flex-direction:column;overflow:hidden;min-height:0}
 .page.on{display:flex}
 .list{flex:1;overflow-y:auto;padding:8px;min-height:0;-webkit-overflow-scrolling:touch}
@@ -322,10 +325,15 @@ nav{background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0}
 <nav>
   <div class="navrow">
     <span id="ind" onclick="saveNow(true)" title="Tap to save" style="font-size:.75rem;padding:0 8px;display:flex;align-items:center;cursor:pointer">🟢</span>
-    <div class="ntab on" onclick="show('fresh',this)">🐔 Whole Chicken</div>
-    <div class="ntab" onclick="show('goods',this)">📦 Goods</div>
-    <div class="ntab" onclick="show('kanz',this)">🏷 KANZ</div>
-    <div class="ntab" onclick="show('tender',this)">🍗 Tender</div>
+    <div class="ntab on" data-p="fresh" onclick="show('fresh',this)">🐔 Whole Chicken</div>
+    <div class="ntab" data-p="goods" onclick="show('goods',this)">📦 Goods</div>
+    <div class="ntab" data-p="kanz" onclick="show('kanz',this)">🏷 KANZ</div>
+    <div class="ntab" data-p="tender" onclick="show('tender',this)">🍗 Tender</div>
+    <div class="nsep">BIG ▸</div>
+    <div class="ntab big" data-p="noon" onclick="show('noon',this)">🟡 Noon</div>
+    <div class="ntab big" data-p="parts" onclick="show('parts',this)">🍖 Zaki Parts</div>
+    <div class="ntab big" data-p="circle" onclick="show('circle',this)">⚪ Circle</div>
+    <div class="ntab big" data-p="ztender" onclick="show('ztender',this)">🥩 Zaki Tender</div>
     <div class="ntab" onclick="show('settings',this)">⚙️ Settings</div>
     <div class="ntab" onclick="show('check',this)">🔍 Check</div>
   </div>
@@ -400,6 +408,77 @@ nav{background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0}
   </div>
 </div>
 
+<!-- BIG: noon -->
+<div class="page" id="pg-noon">
+  <div class="head">
+    <div class="t" style="color:var(--purple)">🟡 Noon (Al Balad) — BIG</div>
+    <div style="display:flex;gap:6px">
+      <button class="btn b-ghost undoBtn" style="padding:5px 10px;font-size:.7rem" onclick="undo()" disabled>↶ Undo</button>
+      <button class="btn b-ghost" style="padding:5px 10px;font-size:.7rem" onclick="clearSheet('noon')">🧹 Clear</button>
+    </div>
+  </div>
+  <div style="padding:6px 8px;background:var(--s2);border-bottom:1px solid var(--b1);flex-shrink:0"><input class="flt" placeholder="🔍 بحث..." oninput="filterList('noon',this.value)"></div>
+  <div class="list" id="list-noon"></div>
+  <div class="bar">
+    <button class="btn b-red" style="padding:11px 12px;font-size:.75rem" onclick="killExcelBig()">❌</button>
+    <button class="btn b-teal" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('noon','today')">📅 Today</button>
+    <button class="btn b-amber" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('noon','next')">📆 Next Day</button>
+  </div>
+</div>
+
+<!-- BIG: parts -->
+<div class="page" id="pg-parts">
+  <div class="head">
+    <div class="t" style="color:var(--purple)">🍖 Zaki Chicken Parts — BIG</div>
+    <div style="display:flex;gap:6px">
+      <button class="btn b-ghost undoBtn" style="padding:5px 10px;font-size:.7rem" onclick="undo()" disabled>↶ Undo</button>
+      <button class="btn b-ghost" style="padding:5px 10px;font-size:.7rem" onclick="clearSheet('parts')">🧹 Clear</button>
+    </div>
+  </div>
+  <div style="padding:6px 8px;background:var(--s2);border-bottom:1px solid var(--b1);flex-shrink:0"><input class="flt" placeholder="🔍 بحث..." oninput="filterList('parts',this.value)"></div>
+  <div class="list" id="list-parts"></div>
+  <div class="bar">
+    <button class="btn b-red" style="padding:11px 12px;font-size:.75rem" onclick="killExcelBig()">❌</button>
+    <button class="btn b-teal" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('parts','today')">📅 Today</button>
+    <button class="btn b-amber" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('parts','next')">📆 Next Day</button>
+  </div>
+</div>
+
+<!-- BIG: circle -->
+<div class="page" id="pg-circle">
+  <div class="head">
+    <div class="t" style="color:var(--purple)">⚪ Circle Stickers — BIG</div>
+    <div style="display:flex;gap:6px">
+      <button class="btn b-ghost undoBtn" style="padding:5px 10px;font-size:.7rem" onclick="undo()" disabled>↶ Undo</button>
+      <button class="btn b-ghost" style="padding:5px 10px;font-size:.7rem" onclick="clearSheet('circle')">🧹 Clear</button>
+    </div>
+  </div>
+  <div style="padding:6px 8px;background:var(--s2);border-bottom:1px solid var(--b1);flex-shrink:0"><input class="flt" placeholder="🔍 بحث..." oninput="filterList('circle',this.value)"></div>
+  <div class="list" id="list-circle"></div>
+  <div class="bar">
+    <button class="btn b-red" style="padding:11px 12px;font-size:.75rem" onclick="killExcelBig()">❌</button>
+    <button class="btn b-teal" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('circle','today')">📅 Today</button>
+    <button class="btn b-amber" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('circle','next')">📆 Next Day</button>
+  </div>
+</div>
+
+<!-- BIG: ztender -->
+<div class="page" id="pg-ztender">
+  <div class="head">
+    <div class="t" style="color:var(--purple)">🥩 Zaki Tender — BIG</div>
+    <div style="display:flex;gap:6px">
+      <button class="btn b-ghost undoBtn" style="padding:5px 10px;font-size:.7rem" onclick="undo()" disabled>↶ Undo</button>
+      <button class="btn b-ghost" style="padding:5px 10px;font-size:.7rem" onclick="clearSheet('ztender')">🧹 Clear</button>
+    </div>
+  </div>
+  <div class="list" id="list-ztender"></div>
+  <div class="bar">
+    <button class="btn b-red" style="padding:11px 12px;font-size:.75rem" onclick="killExcelBig()">❌</button>
+    <button class="btn b-teal" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('ztender','today')">📅 Today</button>
+    <button class="btn b-amber" style="flex:1;padding:11px;font-size:.8rem" onclick="printJob('ztender','next')">📆 Next Day</button>
+  </div>
+</div>
+
 <!-- SETTINGS -->
 <div class="page" id="pg-settings">
   <div class="head">
@@ -410,6 +489,12 @@ nav{background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0}
     <div class="stab" onclick="setTab('goods',this)">📦 Goods</div>
     <div class="stab" onclick="setTab('kanz',this)">🏷 KANZ</div>
     <div class="stab" onclick="setTab('tender',this)">🍗 Tender</div>
+  </div>
+  <div style="display:flex;gap:6px;padding:0 8px 8px;background:var(--s2);border-bottom:1px solid var(--b1);flex-shrink:0">
+    <div class="stab" onclick="setTab('noon',this)">🟡 Noon</div>
+    <div class="stab" onclick="setTab('parts',this)">🍖 Parts</div>
+    <div class="stab" onclick="setTab('circle',this)">⚪ Circle</div>
+    <div class="stab" onclick="setTab('ztender',this)">🥩 Z.Tender</div>
   </div>
   <div style="padding:10px 12px;background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0">
     <div style="font-size:.62rem;color:var(--muted);font-family:var(--mono);margin-bottom:4px">ONEDRIVE ACCOUNT</div>
@@ -451,12 +536,20 @@ try{ if(localStorage.getItem('stk_xlsx_path')&&localStorage.getItem('stk_xlsx_pa
 function LS_rawSet(k,v){try{localStorage.setItem(k,v);}catch{}}
 const SIGNAL_PATH='sticker_signal.json';
 
+const NOON_ITEMS=["Fresh Whole Chicken · 800 gm", "Fresh Whole Chicken · 900 gm", "Fresh Whole Chicken · 1 kg", "Fresh Whole Chicken · 1.1 kg", "Fresh Whole Chicken · 1.2 kg", "Fresh Whole Chicken · 1.3 kg", "Fresh Whole Chicken · 1.4 kg", "Fresh Whole Chicken · 1.5 kg", "Fresh Breast Fillet · 500 gm", "Fresh Breast Fillet · 1 kg", "Fresh Whole Leg · 500 gm", "Fresh Whole Leg · 1 kg", "Fresh Drumsticks · 500 gm", "Fresh Drumsticks · 1 kg", "Fresh Thighs · 500 gm", "Fresh Thighs · 1 kg", "Fresh Liver · 500 gm", "Fresh Liver · 1 kg", "Fresh Hearts · 500 gm", "Fresh Hearts · 1 kg", "Fresh Gizzards · 500 gm", "Fresh Gizzards · 1 kg", "Fresh Whole Leg · Boneless Skinless · 500 gm", "Fresh Whole Leg · Boneless Skinless · 1 kg", "Fresh Whole Leg · Boneless Skin · 500 gm", "Fresh Whole Leg · Boneless Skin · 1 kg", "Fresh Whole Leg · Bone In Skinless · 500 gm", "Fresh Whole Leg · Bone In Skinless · 1 kg", "Fresh Thighs · Boneless Skinless · 500 gm", "Fresh Thighs · Boneless Skinless · 1 kg", "Fresh Thighs · Boneless Skin On · 500 gm", "Fresh Thighs · Boneless Skin On · 1 kg", "Fresh Thighs · Bone In Skinless · 500 gm", "Fresh Thighs · Bone In Skinless · 1 kg", "Fresh Drumsticks · Bone In Skinless · 500 gm", "Fresh Drumsticks · Bone In Skinless · 1 kg", "Fresh Whole Chicken · Boneless Skinless · 800 gm", "Fresh Whole Chicken · Boneless Skinless · 900 gm", "Fresh Whole Chicken · Boneless Skinless · 1 kg", "Fresh Whole Chicken · Boneless Skinless · 1.1 kg", "Fresh Whole Chicken · Boneless Skinless · 1.2 kg", "Fresh Whole Chicken · Boneless Skinless · 1.3 kg", "Fresh Whole Chicken · Boneless Skinless · 1.4 kg", "Fresh Whole Chicken · Boneless Skinless · 1.5 kg", "Fresh Whole Chicken · Boneless Skin On · 800 gm", "Fresh Whole Chicken · Boneless Skin On · 900 gm", "Fresh Whole Chicken · Boneless Skin On · 1 kg", "Fresh Whole Chicken · Boneless Skin On · 1.1 kg", "Fresh Whole Chicken · Boneless Skin On · 1.2 kg", "Fresh Whole Chicken · Boneless Skin On · 1.3 kg", "Fresh Whole Chicken · Boneless Skin On · 1.4 kg", "Fresh Whole Chicken · Boneless Skin On · 1.5 kg", "Fresh Minced Chicken · 500 gm", "Fresh Minced Chicken · 1 kg", "Fresh Breast Cubes · Tawook · 500 gm", "Fresh Breast Cubes · Tawook · 1 kg", "Fresh Breast Strips · 500 gm", "Fresh Breast Strips · 1 kg", "Fresh Breast Slices · 500 gm", "Fresh Breast Slices · 1 kg", "Fresh Mix Cut, 6 Pcs · 800 gm", "Fresh Mix Cut, 6 Pcs · 900 gm", "Fresh Mix Cut, 6 Pcs · 1 kg", "Fresh Mix Cut, 6 Pcs · 1.1 kg", "Fresh Mix Cut, 6 Pcs · 1.2 kg", "Fresh Mix Cut, 6 Pcs · 1.3 kg", "Fresh Mix Cut, 6 Pcs · 1.4 kg", "Fresh Mix Cut, 6 Pcs · 1.5 kg", "Fresh Mix Cut, 8 Pcs · 800 gm", "Fresh Mix Cut, 8 Pcs · 900 gm", "Fresh Mix Cut, 8 Pcs · 1 kg", "Fresh Mix Cut, 8 Pcs · 1.1 kg", "Fresh Mix Cut, 8 Pcs · 1.2 kg", "Fresh Mix Cut, 8 Pcs · 1.3 kg", "Fresh Mix Cut, 8 Pcs · 1.4 kg", "Fresh Mix Cut, 8 Pcs · 1.5 kg", "Fresh Wings · 500 gm", "Fresh Wings · 1 kg", "STRIPS", "SLICES", "STICKS", "SHAWERMA", "BONE", "SKIN", "NECK", "MINCED"];
 const SHEETS={
   kanz:{name:'KANZ ALMADAM',start:3,items:['Bone','Breast','Chicken BLW Wings','Drum ','Gizzard','Heart ','Liver','Mix Chicken','Neck','Shawrma ','Skin','Thigh','Thigh BL-SL','Thigh BL-SO','Thigh SL','Whole Legs','legs BL-SL','Whole legs BL-SO','Whole legs SL','Wings','MINCED','Whole Legs 500GR','WINGS 500GM','THIGH 500.GM','Tail']},
   goods:{name:'goods',start:3,items:['Bone','Breast','Chicken BLW Wings','Drum ','Gizzard','Heart ','Liver','Mix Chicken','Neck','Shawrma ','Skin','Thigh','Thigh BL-SL','Thigh BL-SO','Thigh SL','Whole Legs','legs BL-SL','Whole legs BL-SO','Whole legs SL','Wings','MINCED','Whole Legs 500GR']},
   fresh:{name:'fresh whole chicken',start:2,items:['No Size','500 GR','550 GR','600 GR','650 GR','700 GR','750 GR','800 GR','850 GR','900 GR','950 GR','1000 GR','1050 GR','1100 GR','1150 GR','1200 GR','1250 GR','1300 GR','1350 GR','1400 GR']},
-  tender:{name:'tender',start:3,col:'A',items:['Chicken Breast Tenderized']}
+  tender:{name:'tender',start:3,col:'A',items:['Chicken Breast Tenderized']},
+  // ══ BIG STICKERS — ALBALAD.xlsx (OneDrive/Desktop/new print) — لابتوب الطابعة الكبيرة ══
+  // الكميات بتنبعت جوّا إشارة الطباعة، والسكربت هناك بيكتبها بعمود A وبيطبع
+  noon:{name:'NOON',start:2,col:'A',big:true,label:'Noon',items:NOON_ITEMS},
+  parts:{name:'NOON',start:2,col:'A',big:true,label:'Zaki Parts',items:NOON_ITEMS},
+  circle:{name:'NOON',start:2,col:'A',big:true,label:'Circle',items:NOON_ITEMS},
+  ztender:{name:'ZAKI',start:2,col:'A',big:true,label:'Zaki Tender',items:['Zaki Tender 400 GR','Zaki Tender 450 GR','Zaki Tender 500 GR']}
 };
+const BIG_SIGNAL_PATH='big_sticker_signal.json';
 
 const LS={
   get:(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d;}catch{return d;}},
@@ -465,6 +558,7 @@ const LS={
 
 let data=LS.get('stk_data',{kanz:{},goods:{},fresh:{},tender:{}});
 if(!data.tender)data.tender={};
+for(const k of ['noon','parts','circle','ztender']) if(!data[k])data[k]={};
 let order=LS.get('stk_order',{});
 // أصناف مخصّصة يضيفها المستخدم (kanz و goods فقط) - تُكتب بآخر الشيت
 let customItems=LS.get('stk_custom',{kanz:[],goods:[]});
@@ -516,8 +610,7 @@ function undo(){
   // انتقل للصفحة لو كنت بغيرها
   const cur=document.querySelector('.page.on')?.id.replace('pg-','');
   if(cur!==s.key&&cur!=='settings'){
-    const tabs={fresh:0,goods:1,kanz:2,tender:3};
-    const el=document.querySelectorAll('.ntab')[tabs[s.key]];
+    const el=document.querySelector('.ntab[data-p="'+s.key+'"]');
     if(el)show(s.key,el);
   }
   toast('↶ Undone','ok');
@@ -569,6 +662,14 @@ function show(p,t){
   if(t)t.classList.add('on');
 }
 
+let _flt={};
+function filterList(key,q){
+  _flt[key]=(q||'').toLowerCase().trim();
+  document.querySelectorAll('#list-'+key+' .row').forEach(r=>{
+    const n=r.querySelector('.name').textContent.toLowerCase();
+    r.style.display=(!_flt[key]||n.includes(_flt[key])||r.querySelector('input').value)?'':'none';
+  });
+}
 function render(key){
   const el=document.getElementById('list-'+key);
   el.innerHTML=getRows(key).map(({row,name,custom})=>{
@@ -585,6 +686,7 @@ function render(key){
       <button class="stp" onclick="step(this,10)">+10</button>
     </div>`;
   }).join('');
+  if(_flt[key])filterList(key,_flt[key]);
 }
 
 // ── إضافة/حذف أصناف مخصّصة (kanz و goods) ──
@@ -934,6 +1036,7 @@ async function saveNow(showMsg){
     const token=await getToken();
     const cur=document.querySelector('.page.on').id.replace('pg-','');
     if(!SHEETS[cur]){ind();if(showMsg)toast('افتح تاب المنتجات أول (مش Settings)');return;}
+    if(SHEETS[cur].big){ind();if(showMsg)toast('الستيكرات الكبيرة بتنحفظ وقت الطباعة (Today / Next Day)');return;}
     await writeSheet(cur,token);
     ind('saved');
     if(showMsg)toast('✓ Saved to Excel','ok');
@@ -946,6 +1049,7 @@ async function saveNow(showMsg){
 
 async function printJob(key,day){
   const cfg=SHEETS[key];
+  if(cfg.big) return printBig(key,day);
   const count=Object.keys(data[key]).length;
   if(!count){toast('No quantities entered','err');return;}
 
@@ -970,6 +1074,40 @@ async function printJob(key,day){
   }finally{
     btns.forEach(b=>b.disabled=false);
   }
+}
+
+// ══ BIG STICKERS ══
+async function printBig(key,day){
+  const cfg=SHEETS[key];
+  const count=Object.keys(data[key]).length;
+  if(!count){toast('No quantities entered','err');return;}
+  const btns=document.querySelectorAll('#pg-'+key+' .bar button');
+  btns.forEach(b=>b.disabled=true);
+  ind('saving');
+  try{
+    const token=await getToken();
+    const end=cfg.start+cfg.items.length-1;
+    const values=[];
+    for(let r=cfg.start;r<=end;r++) values.push([parseInt(data[key][r])||0]);
+    await sendBigSignal([{action:'print_big',label:key,day:day||'today',sheet:cfg.name,col:cfg.col||'A',
+      start:cfg.start,end,values,_id:Date.now()+Math.random()}],token);
+    ind('saved');
+    toast(`✓ ${count} → ${cfg.label} ${day==='next'?'Next Day':'Today'} (big printer)...`,'ok');
+  }catch(e){
+    ind('err'); logErr('big print '+key+' '+day,e.message); toast('✗ '+e.message,'err');
+  }finally{ btns.forEach(b=>b.disabled=false); }
+}
+async function sendBigSignal(jobs,token){
+  const r=await fetch(`https://graph.microsoft.com/v1.0/me/drive/root:/${BIG_SIGNAL_PATH}:/content`,{
+    method:'PUT',headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},
+    body:JSON.stringify({jobs,ts:Date.now()})});
+  if(!r.ok) throw new Error('Big print signal failed '+fmtErr(r.status,await r.text()));
+}
+async function killExcelBig(){
+  try{ const token=await getToken();
+    await sendBigSignal([{action:'kill_excel',_id:Date.now()+Math.random()}],token);
+    toast('✓ Closing Excel on big-printer laptop...','ok');
+  }catch(e){toast('✗ '+e.message,'err');}
 }
 
 async function killExcel(){
@@ -1049,7 +1187,7 @@ async function runCheck(){
     r=await gj(`${wb}/worksheets?$select=name,visibility,position`,token);
     if(!r.ok){ck('bad','Open in Excel Online',r.err,'Excel Online ما قدر يفتح الملف. افتحه بالمتصفح من onedrive.live.com: إذا ما فتح هناك كمان، المشكلة بالملف أو عند Microsoft.');}
     else{const names=(r.j.value||[]).map(x=>x.name);ck('ok',`Open in Excel Online (${r.ms} ms)`,names.join(' | '));
-      for(const k in SHEETS){const n=SHEETS[k].name;if(!names.some(x=>x.toLowerCase()===n.toLowerCase()))ck('bad',`Sheet "${n}" missing`,'',`الشيت "${n}" مش موجود بالملف، أو انغيّر اسمه.`);}}
+      for(const k in SHEETS){if(SHEETS[k].big)continue;const n=SHEETS[k].name;if(!names.some(x=>x.toLowerCase()===n.toLowerCase()))ck('bad',`Sheet "${n}" missing`,'',`الشيت "${n}" مش موجود بالملف، أو انغيّر اسمه.`);}}
 
     // 5. session
     r=await gj(`${wb}/createSession`,token,{method:'POST',headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({persistChanges:true})});
@@ -1095,7 +1233,8 @@ async function copyReport(){
 }
 
 // ══ INIT ══
-render('fresh'); render('goods'); render('kanz'); render('tender'); renderSettings();
+render('fresh'); render('goods'); render('kanz'); render('tender');
+render('noon'); render('parts'); render('circle'); render('ztender'); renderSettings();
 setTimeout(showAccount,1200);
 renderErrLog();
 updUndo();
